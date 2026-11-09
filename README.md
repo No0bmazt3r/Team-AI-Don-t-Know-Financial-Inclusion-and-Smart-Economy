@@ -89,7 +89,7 @@ An employee gets five things a gig rider doesn't:
 
 | What an employer gives | What a gig rider has today |
 |---|---|
-| **Steady pay** on a fixed day | RM900 one week, RM400 the next |
+| **Steady pay** on a fixed day | RM950 one week, RM400 the next |
 | **A payslip** to show a bank or landlord | Screenshots, nothing official |
 | **Contributions** (EPF, PERKESO) set aside automatically | Has to remember to pay them; most don't |
 | **Paid leave**, so Raya or illness doesn't mean losing pay | Every day off is a day without pay |
@@ -109,7 +109,7 @@ The problem has two parts. **Uneven income:** good weeks get spent and bad weeks
 
 | Benefit | What the rider gets |
 |---|---|
-| **Gaji Tetap** (steady pay) | One weekly salary that is safe in 95% of 1,000 simulated futures. Good week: "Pindah RM168 ke poket Penampan" (move RM168 into your buffer pocket); lean week: take it back out. The rider moves the money in their own bank and taps **Dah pindah** (done). The buffer counts confirmed transfers only. |
+| **Gaji Tetap** (steady pay) | One weekly salary that is safe in 95% of 1,000 simulated futures. Good week: "Pindah RM177 ke poket Penampan" (move RM177 into your buffer pocket); lean week: take it back out. The rider moves the money in their own bank and taps **Dah pindah** (done). The buffer counts confirmed transfers only. |
 | **Slip Gaji** (payslip) | Weekly payslips and a Penyata income statement PDF, every figure labelled *Dilapor sendiri* or *Disemak silang* (self-reported or cross-checked against a bank statement), plus a revocable read-only link for a loans officer. |
 | **Caruman** (contributions) | i-Saraan set-asides with a "government money claimed" counter; PERKESO shown as deducted at source. |
 | **Cuti Berbayar** (paid leave) | Plan Raya leave, set a little aside each week, and the week off still pays. Sick days are covered too. |
@@ -323,7 +323,7 @@ sequenceDiagram
   M-->>A: salary, risk, band, build-up, Jurang, reasons
   A->>D: save salary run + this week's transfer
   R->>A: GET /api/home
-  A-->>R: "Gaji anda minggu ini: RM620"
+  A-->>R: "Gaji anda minggu ini: RM407"
 ```
 
 ### Odah Bot and the number guard
