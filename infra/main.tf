@@ -28,7 +28,7 @@ provider "aws" {
 variable "github_repo" {
   description = "owner/name of the repository whose workflows may assume the GitHub roles"
   type        = string
-  default     = "No0bmazt3r/Coinvoy"
+  default     = "No0bmazt3r/Team-AI-Don-t-Know-Financial-Inclusion-and-Smart-Economy" # GitHub sends the current name; update after a rename
 }
 
 variable "alert_email" {
