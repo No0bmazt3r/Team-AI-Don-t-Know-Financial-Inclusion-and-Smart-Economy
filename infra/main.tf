@@ -25,10 +25,19 @@ provider "aws" {
   default_tags { tags = { app = "coinvoy" } }
 }
 
-variable "github_repo" {
-  description = "owner/name of the repository whose workflows may assume the GitHub roles"
+# GitHub's OIDC subject now carries immutable IDs: repo:<owner>@<owner-id>/<repo>@<repo-id>:<context>.
+# Trusting the IDs (names wildcarded) survives renames and can't be matched by a look-alike repo.
+# Find them: curl -s https://api.github.com/repos/<owner>/<repo> → owner.id and id
+variable "github_owner_id" {
+  description = "Numeric ID of the GitHub account that owns the repository"
   type        = string
-  default     = "No0bmazt3r/Team-AI-Don-t-Know-Financial-Inclusion-and-Smart-Economy" # GitHub sends the current name; update after a rename
+  default     = "116445942"
+}
+
+variable "github_repo_id" {
+  description = "Numeric ID of the repository whose workflows may assume the GitHub roles"
+  type        = string
+  default     = "1413429273"
 }
 
 variable "alert_email" {
@@ -71,9 +80,9 @@ resource "aws_iam_openid_connect_provider" "github" {
 # Which GitHub jobs may assume each role, by the token's subject claim
 locals {
   github_roles = {
-    plan   = "repo:${var.github_repo}:pull_request"           # infra.yml on a pull request
-    apply  = "repo:${var.github_repo}:environment:infra"      # infra.yml apply (GitHub environment "infra", main only)
-    deploy = "repo:${var.github_repo}:environment:production" # deploy-*.yml (GitHub environment "production", main only)
+    plan   = "repo:*@${var.github_owner_id}/*@${var.github_repo_id}:pull_request"           # infra.yml on a pull request
+    apply  = "repo:*@${var.github_owner_id}/*@${var.github_repo_id}:environment:infra"      # infra.yml apply (GitHub environment "infra", main only)
+    deploy = "repo:*@${var.github_owner_id}/*@${var.github_repo_id}:environment:production" # deploy-*.yml (GitHub environment "production", main only)
   }
 }
 
@@ -91,7 +100,7 @@ data "aws_iam_policy_document" "github_trust" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringEquals"
+      test     = "StringLike" # names are wildcards; the IDs must match exactly
       variable = "token.actions.githubusercontent.com:sub"
       values   = [each.value]
     }
