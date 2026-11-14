@@ -4,15 +4,16 @@ import { z } from 'zod'
 const bool = (fallback: boolean) => z.stringbool().default(fallback)
 const schema = z.object({
   PORT: z.coerce.number().default(8000),
-  // Empty: the built-in local database. memory:// for tests. postgres://… on a server.
+  // Empty: the built-in local database. memory:// for tests. postgres://… on a server (on AWS without the password:
+  // node-postgres reads PGPASSWORD, which ECS fills from the coinvoy/db secret).
   DATABASE_URL: z.string().default(''),
-  // Supabase signs its database certificate with its own CA: paste that certificate (PEM) here so the connection is
-  // verified. Empty: the system's trusted CAs (enough for most hosted Postgres; not for Supabase).
-  DATABASE_SSL_CA: z.string().default(''),
-  // Apply migrations at startup (local). Deployed it's false: the "Database (Supabase)" workflow checks and applies them.
+  // Apply pending migrations at startup, locally and on AWS (one backend task, so no two runs race).
   MIGRATE_ON_START: bool(true),
-  // The commit the running build came from, shown by /api/health. Render sets RENDER_GIT_COMMIT itself.
-  GIT_SHA: z.string().default(process.env.RENDER_GIT_COMMIT || 'dev'),
+  // The commit the running build came from, shown by /api/health. The image bakes it in (backend/Dockerfile).
+  GIT_SHA: z.string().default('dev'),
+  // Set on AWS: CloudFront sends it as X-Origin-Verify, and /api and /o refuse requests without it, so nobody can skip
+  // CloudFront by calling the backend's own address. Empty = no check (local, tests).
+  ORIGIN_VERIFY: z.string().default(''),
   // Local PGlite only: also accept Postgres connections (DBeaver, psql) on this port while the API runs. 0 = off.
   PGLITE_PORT: z.coerce.number().int().min(0).max(65535).default(5433),
   APP_URL: z.url().default('http://localhost:5173'),
@@ -30,34 +31,15 @@ const schema = z.object({
   VAPID_PRIVATE_KEY: z.string().default(''),
   VAPID_SUBJECT: z.string().default('mailto:admin@coinvoy.invalid'),
   // The Python ML service (engine, BM classifier, Penyata renderer)
-  // Render gives host:port without http://, so we add it.
+  // A bare host:port gets http:// added.
   ML_URL: z.preprocess((v) => (typeof v === 'string' && v && !/^https?:\/\//.test(v) ? `http://${v}` : v), z.url().default('http://127.0.0.1:8001')),
   ML_TOKEN: z.string().default(''),
-  // How many proxies sit in front of the API: 1 for the Vite dev server or Render alone, 2 behind Vercel + Render
+  // How many proxies sit in front of the API: 1 for the Vite dev server, 2 on AWS (CloudFront, then the load balancer)
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
-  // Any OpenAI-compatible LLM provider (see .env.example). Empty key = AI off, manual entry still works.
-  LLM_BASE_URL: z.url().default('https://openrouter.ai/api/v1'),
-  LLM_API_KEY: z.string().default(''),
-  LLM_MODEL: z.string().default(''),
-  LLM_MODEL_SNAP: z.string().default(''),
-  LLM_MODEL_TANYA: z.string().default(''),
-  LLM_MODEL_LENDER: z.string().default(''),
-  LLM_MODEL_BM: z.string().default(''),
-  LLM_MODEL_RECO: z.string().default(''),
-  // How hard each job's model thinks before answering (reasoning_effort). Empty = the provider's default.
-  LLM_REASONING_SNAP: z.string().default(''),
-  LLM_REASONING_TANYA: z.string().default(''),
-  LLM_REASONING_LENDER: z.string().default(''),
-  LLM_REASONING_BM: z.string().default(''),
-  LLM_REASONING_RECO: z.string().default(''),
-  // false: one AI key for every job. true: each job has its own key, and a job without one is off.
-  LLM_SPLIT_KEYS: bool(false),
-  LLM_API_KEY_SNAP: z.string().default(''),
-  LLM_API_KEY_TANYA: z.string().default(''),
-  LLM_API_KEY_RECO: z.string().default(''),
-  LLM_BASE_URL_SNAP: z.string().default(''),
-  LLM_BASE_URL_TANYA: z.string().default(''),
-  LLM_BASE_URL_RECO: z.string().default(''),
+  // AI providers, keys and models are managed in the app (/admin/ai) and stored encrypted with this key:
+  // a base64 32-byte value (openssl rand -base64 32). Empty = keys can't be stored or read, so AI is off.
+  // Changing it makes stored keys unreadable (they must be re-entered in /admin/ai).
+  AI_KEYS_MASTER_KEY: z.string().default(''),
   LLM_TIMEOUT_S: z.coerce.number().default(60),
   LLM_DAILY_SNAP: z.coerce.number().default(15),
   LLM_DAILY_TANYA: z.coerce.number().default(20),
@@ -65,8 +47,6 @@ const schema = z.object({
   LLM_DAILY_BM: z.coerce.number().default(30),
   LLM_DAILY_RECO: z.coerce.number().default(10),
   LLM_MONTHLY_CALL_CAP: z.coerce.number().default(20_000),
-  LLM_PROVIDER_NAME: z.string().default(''),
-  LLM_REGION_NOTE: z.string().default(''),
   // Shown on the privacy page as the contact for data questions (PDPA asks for one)
   PRIVACY_CONTACT_EMAIL: z.string().default(''),
   DEMO_LLM_CACHE: bool(false),
@@ -87,12 +67,3 @@ if (!parsed.success) {
 export const env = parsed.data
 export const googleConfigured = () => Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)
 export const pushConfigured = () => Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY)
-// AI is on if at least one job has a key and a model
-export const llmConfigured = () => {
-  const jobs: [string, string][] = [
-    [env.LLM_API_KEY_SNAP, env.LLM_MODEL_SNAP],
-    [env.LLM_API_KEY_TANYA, env.LLM_MODEL_TANYA],
-    [env.LLM_API_KEY_RECO, env.LLM_MODEL_RECO],
-  ]
-  return jobs.some(([key, model]) => (env.LLM_SPLIT_KEYS ? key : env.LLM_API_KEY) && (model || env.LLM_MODEL))
-}

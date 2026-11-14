@@ -33,6 +33,14 @@ COPY backend/api/data backend/api/data
 COPY backend/api/scripts backend/api/scripts
 COPY backend/start.sh backend/start.sh
 
+# Amazon RDS signs its certificate with its own CA: trust it so the database connection stays fully verified
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds-global-bundle.pem
+
+# The commit this image was built from, shown by /api/health (deploy-backend.yml passes it)
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
+
 # Run as a normal user, not root
 RUN useradd --create-home --uid 1000 app && chown -R app:app /app
 USER app

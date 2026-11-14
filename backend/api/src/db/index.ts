@@ -18,10 +18,10 @@ const DEFAULT_DIR = fileURLToPath(new URL('../../.pglite', import.meta.url))
 
 function connect(): { db: Db; migrate: () => Promise<void>; close: () => Promise<void>; serve?: (port: number) => Promise<string> } {
   if (env.DATABASE_URL.startsWith('postgres')) {
-    // TLS for any remote database, always verified; Supabase needs its CA (DATABASE_SSL_CA). Put no sslmode in the
-    // URL: node-postgres lets the URL's sslmode override these settings.
+    // TLS for any remote database, always verified. Amazon RDS's CA comes from NODE_EXTRA_CA_CERTS (backend/Dockerfile).
+    // Put no sslmode in the URL: node-postgres lets the URL's sslmode override these settings.
     const local = /@(localhost|127\.0\.0\.1)[:/]/.test(env.DATABASE_URL)
-    const ssl = local ? undefined : { rejectUnauthorized: true, ...(env.DATABASE_SSL_CA ? { ca: env.DATABASE_SSL_CA } : {}) }
+    const ssl = local ? undefined : { rejectUnauthorized: true }
     const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 10, ssl })
     const db = drizzlePg(pool, { schema })
     return { db, migrate: () => migratePg(db, { migrationsFolder: MIGRATIONS }), close: () => pool.end() }

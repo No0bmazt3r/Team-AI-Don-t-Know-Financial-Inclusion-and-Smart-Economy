@@ -1,6 +1,8 @@
-# Deploys the backend container to Render only when the repository owner starts it by hand.
-# The checks workflow and a manual database migration for the exact commit must already have passed.
-name: Deploy backend (Render)
+# Deploys the backend container to AWS (ECS Express Mode) only when the repository owner starts it by hand:
+# Actions → "Deploy backend (AWS)" → Run workflow (branch: main). Independent of the frontend deploy.
+# The checks workflow must already have passed for the exact commit. Database migrations run as the new task starts.
+# AWS access is through OIDC (role coinvoy-github-deploy, only usable from the "production" environment): no stored keys.
+name: Deploy backend (AWS)
 
 on:
   workflow_dispatch:
@@ -40,51 +42,47 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  verify-database:
-    name: Verify database migration
-    runs-on: ubuntu-latest
-    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
-    steps:
-      - name: Require successful migration for this commit
-        run: |
-          conclusion=$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow database.yml \
-            --commit "$GITHUB_SHA" \
-            --status completed \
-            --limit 20 \
-            --json conclusion,displayTitle \
-            --jq '[.[] | select(.displayTitle | startswith("Database migrate")) | .conclusion] | .[0] // empty')
-          if [ "$conclusion" != "success" ]; then
-            echo "A successful database migration for commit $GITHUB_SHA was not found (result: ${conclusion:-not found})." >&2
-            echo "Run Database (Supabase) with action=migrate, wait for it to pass, then run this workflow again." >&2
-            exit 1
-          fi
-          echo "Database migration passed for commit $GITHUB_SHA."
-        env:
-          GH_TOKEN: ${{ github.token }}
-
   deploy:
-    name: Deploy to Render
-    needs: [verify-checks, verify-database]
+    name: Deploy to ECS
+    needs: [verify-checks]
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write # the OIDC token AWS trusts
+    env:
+      AWS_REGION: ap-southeast-1
+      SERVICE_ARN: ${{ vars.ECS_SERVICE_ARN }}
     steps:
-      - name: Trigger Render deploy for this commit
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/coinvoy-github-deploy
+          aws-region: ap-southeast-1
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the image (tagged with the commit)
+        id: image
         run: |
-          case "$RENDER_DEPLOY_HOOK_URL" in
-            https://api.render.com/deploy/*) ;;
-            *)
-              echo "RENDER_DEPLOY_HOOK_URL must be the Render deploy-hook URL from the service Settings page." >&2
-              echo "It should start with https://api.render.com/deploy/." >&2
-              exit 1
-              ;;
-          esac
-          separator='?'
-          case "$RENDER_DEPLOY_HOOK_URL" in
-            *\?*) separator='&' ;;
-          esac
-          curl --fail-with-body --silent --show-error --request POST \
-            "${RENDER_DEPLOY_HOOK_URL}${separator}ref=${GITHUB_SHA}"
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          image="${{ steps.ecr.outputs.registry }}/coinvoy-api:$GITHUB_SHA"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          # Tags are immutable: a re-run for the same commit reuses the image it already pushed
+          if aws ecr describe-images --repository-name coinvoy-api --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "Image for $GITHUB_SHA already in ECR."
+            exit 0
+          fi
+          docker build -f backend/Dockerfile --build-arg GIT_SHA="$GITHUB_SHA" -t "$image" .
+          docker push "$image"
+      - name: Point the service at the new image
+        run: |
+          # Update only the image: read the running container config and send it back with the new image, so the
+          # environment and secrets Terraform set stay as they are
+          container=$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" \
+            --query 'service.activeConfigurations[0].primaryContainer' --output json \
+            | jq -c --arg image "${{ steps.image.outputs.image }}" '.image = $image')
+          aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$container" >/dev/null
+      - name: Wait until the new task is healthy
+        run: |
+          cluster=$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.cluster' --output text)
+          aws ecs wait services-stable --cluster "$cluster" --services "$SERVICE_ARN"
+          echo "Backend running ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"

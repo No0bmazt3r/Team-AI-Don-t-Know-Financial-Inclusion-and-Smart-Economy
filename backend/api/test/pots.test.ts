@@ -1,6 +1,4 @@
 import { beforeEach, expect, it } from 'vitest'
-import { env } from '../src/env.ts'
-import { describeAi, keyFor, routeConfigured } from '../src/llm/client.ts'
 import { byKeyword, cache, candidates } from '../src/services/reco.ts'
 import { db, schema } from '../src/db/index.ts'
 import { fakeLlm, rider } from './helpers.ts'
@@ -27,32 +25,6 @@ it('categorises custom pot names by keyword in BM and English', () => {
   expect(byKeyword('Yuran sekolah Aiman')).toBe('education')
   expect(byKeyword('New phone')).toBe('phone')
   expect(byKeyword('Zzz')).toBeNull()
-})
-
-it('merge mode uses the shared key for every job; split mode uses each job\'s own key, and a job without one is off', () => {
-  Object.assign(env, {
-    LLM_API_KEY: 'shared-key-0000', LLM_BASE_URL: 'https://api.groq.com/openai/v1', LLM_MODEL: 'm',
-    LLM_API_KEY_SNAP: 'ocr-key-1111', LLM_BASE_URL_SNAP: 'https://gemini.example/v1', LLM_API_KEY_TANYA: '', LLM_API_KEY_RECO: 'reco-key-2222',
-  })
-  env.LLM_SPLIT_KEYS = false
-  for (const r of ['snap', 'tanya', 'lender', 'reco', 'bm'] as const) expect(keyFor(r)).toEqual({ apiKey: 'shared-key-0000', baseURL: 'https://api.groq.com/openai/v1' })
-  expect(routeConfigured('tanya')).toBe(true)
-
-  env.LLM_SPLIT_KEYS = true
-  expect(keyFor('snap')).toEqual({ apiKey: 'ocr-key-1111', baseURL: 'https://gemini.example/v1' })
-  expect(keyFor('reco')).toEqual({ apiKey: 'reco-key-2222', baseURL: 'https://api.groq.com/openai/v1' }) // no own URL: the shared one
-  expect(keyFor('bm').apiKey).toBe('reco-key-2222')
-  expect(keyFor('tanya').apiKey).toBe('') // no own key: off, not the shared key
-  expect(keyFor('lender').apiKey).toBe('')
-  expect(routeConfigured('tanya')).toBe(false)
-  expect(routeConfigured('snap')).toBe(true)
-
-  const lines = describeAi()
-  expect(lines[0]).toBe('ocr (snap): split · key …1111 @ gemini.example · model m')
-  expect(lines[1]).toBe('chatbot (tanya): split · no key: off · model m')
-  expect(lines.join(' ')).not.toContain('ocr-key') // never the key itself
-
-  Object.assign(env, { LLM_SPLIT_KEYS: false, LLM_API_KEY: '', LLM_MODEL: '', LLM_API_KEY_SNAP: '', LLM_BASE_URL_SNAP: '', LLM_API_KEY_RECO: '' })
 })
 
 it('adds a suggested pot and a custom one, closes a pot into the buffer, and keeps it as history', async () => {

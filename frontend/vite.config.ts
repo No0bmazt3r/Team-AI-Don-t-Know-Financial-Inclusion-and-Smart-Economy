@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 
 export default defineConfig(({ mode }) => {
-  // Where `pnpm dev` forwards the API (frontend/.env: API_URL). In production Vercel does this (vercel.json).
+  // Where `pnpm dev` forwards the API (frontend/.env: API_URL). In production CloudFront does this (infra/main.tf).
   const api = loadEnv(mode, process.cwd(), '').API_URL || 'http://localhost:8000'
   return {
     // The router plugin must run before react() so it can generate src/routeTree.gen.ts.

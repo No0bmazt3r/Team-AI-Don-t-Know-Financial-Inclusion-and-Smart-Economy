@@ -10,7 +10,9 @@ CLAUDE.local.md
 !.env.example
 *.pem
 *.key
+# The old Supabase CA and Vercel CLI link, no longer used: safe to delete locally
 prod-ca-2021.crt
+.vercel/
 
 # Node / pnpm (frontend)
 node_modules/
@@ -71,5 +73,6 @@ client_secret_*.json
 # Statements and screenshots dropped in the repo root for testing (they hold real names and accounts)
 /*.pdf
 
-# Vercel CLI link (vercel link / vercel pull)
-.vercel/
+# Terraform (infra/): providers and plans stay local; .terraform.lock.hcl is committed
+.terraform/
+tfplan

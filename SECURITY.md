@@ -32,7 +32,7 @@ Out of scope:
 - Denial-of-service or load testing against the live deployment
 - Social engineering of the team or riders
 - Missing security headers with no demonstrated impact
-- Problems in third-party services (Google, AI providers, Render): please report those to them
+- Problems in third-party services (Google, AI providers, AWS): please report those to them
 
 ## Please
 

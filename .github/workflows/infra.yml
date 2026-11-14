@@ -1,0 +1,73 @@
+# Terraform for the AWS setup (infra/):
+#   pull request touching infra/   fmt + validate + plan with the read-only role; the plan goes in the run summary
+#   manual run on main              plan, then apply with the admin role (owner only, GitHub environment "infra")
+#
+# The very first apply runs from the owner's machine (README → Deployment): these roles are created by it.
+name: Infra (Terraform)
+
+on:
+  pull_request:
+    paths: ["infra/**", ".github/workflows/infra.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: infra
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+  BACKEND: bucket=coinvoy-tfstate-${{ vars.AWS_ACCOUNT_ID }}
+
+jobs:
+  plan:
+    name: Plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.16.1", terraform_wrapper: false }
+      - run: terraform fmt -check -diff
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/coinvoy-github-plan
+          aws-region: ap-southeast-1
+      - run: terraform init -input=false -backend-config="$BACKEND"
+      - run: terraform validate
+      # Read-only role: it can't write the lock file, and a plan changes nothing anyway
+      - run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan
+          { echo '```'; terraform show -no-color tfplan | tail -c 60000; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: Plan and apply
+    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: infra # the apply role trusts only this environment; add yourself as a required reviewer to approve each apply
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.16.1", terraform_wrapper: false }
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/coinvoy-github-apply
+          aws-region: ap-southeast-1
+      - run: terraform init -input=false -backend-config="$BACKEND"
+      - run: terraform plan -input=false -no-color -out=tfplan
+      - run: terraform apply -input=false -no-color tfplan

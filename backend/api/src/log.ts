@@ -1,4 +1,4 @@
-// Structured logs: one JSON object per line on stdout/stderr, which Render (and any log tool) can search by field.
+// Structured logs: one JSON object per line on stdout/stderr, which CloudWatch Logs (and any log tool) can search by field.
 import type { RequestHandler } from 'express'
 import { env } from './env.ts'
 

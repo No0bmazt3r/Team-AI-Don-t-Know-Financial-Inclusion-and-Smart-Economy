@@ -84,7 +84,7 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
 
 </div>
 
-Changing the database? Edit `backend/api/src/db/schema.ts`, run `pnpm db:generate`, and commit the new file in `backend/api/drizzle/`. The deploy pipeline applies it to production before deploying the new code.
+Changing the database? Edit `backend/api/src/db/schema.ts`, run `pnpm db:generate`, and commit the new file in `backend/api/drizzle/`. CI runs every migration against Postgres, and the new backend task applies pending ones as it starts on AWS (if one fails, the deploy fails and the old task keeps running).
 
 ## Licence
 

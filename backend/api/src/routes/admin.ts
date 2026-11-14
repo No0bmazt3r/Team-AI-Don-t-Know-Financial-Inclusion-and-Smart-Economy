@@ -2,7 +2,6 @@
 import { Router } from 'express'
 import { isAdmin, requireUser, userOf } from '../auth.ts'
 import { db } from '../db/index.ts'
-import { env } from '../env.ts'
 import { notFound } from '../errors.ts'
 import { daily, guideStats, llmUsage, loadPrices, retention, riderCounts } from '../services/usage.ts'
 
@@ -21,7 +20,6 @@ adminRouter.get('/admin/usage', requireUser, async (_req, res) => {
     days, // per day: riders who did anything, and AI calls per job
     guides, // riders who started / finished / skipped each screen's tour
     llm: {
-      mode: env.LLM_SPLIT_KEYS ? 'split' : 'merge', // one shared key, or a key per job (LLM_SPLIT_KEYS)
       days: 30,
       rows: llm.rows.map(({ first: _f, last: _l, usd, ...r }) => ({ ...r, myr: usd === null ? null : usd * prices.usdToMyr })),
       riders: llm.riders,

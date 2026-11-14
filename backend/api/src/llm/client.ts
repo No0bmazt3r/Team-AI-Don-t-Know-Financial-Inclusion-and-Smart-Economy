@@ -1,64 +1,60 @@
 // One LLM client for every provider that speaks the OpenAI chat API. OpenRouter, Gemini, OpenAI, Anthropic,
-// Groq and Ollama all do, so switching provider is LLM_BASE_URL / LLM_API_KEY / LLM_MODEL in .env, never code.
+// Groq and Ollama all do. Which provider, key and model each job uses is set in /admin/ai (src/llm/keys.ts), never code.
+// Each job has an ordered fallback list: a refused or rate-limited key hands the call to the next one.
 import OpenAI from 'openai'
 import type { ChatCompletionMessage, ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import { z } from 'zod'
 import { env } from '../env.ts'
 import { ApiError } from '../errors.ts'
 import { log } from '../log.ts'
+import { chainFor, recordFailure, type Route } from './keys.ts'
 
-export type Route = 'snap' | 'tanya' | 'lender' | 'bm' | 'reco'
+export type { Route } from './keys.ts'
 
-// Tests swap in a client pointed at a fake provider (used for every route).
-export const provider: { client: OpenAI | null } = { client: null }
+// Tests point every client at a fake provider by swapping fetch.
+export const provider: { fetch: typeof fetch | null } = { fetch: null }
 const clients = new Map<string, OpenAI>()
 
-/**
- * Which key and address each AI job uses.
- * LLM_SPLIT_KEYS=false: every job uses the shared key.
- * LLM_SPLIT_KEYS=true: each job uses its own key, and a job without one is switched off.
- */
-export function keyFor(route: Route): { apiKey: string; baseURL: string } {
-  const [key, url] = {
-    snap: [env.LLM_API_KEY_SNAP, env.LLM_BASE_URL_SNAP],
-    tanya: [env.LLM_API_KEY_TANYA, env.LLM_BASE_URL_TANYA],
-    lender: [env.LLM_API_KEY_TANYA, env.LLM_BASE_URL_TANYA],
-    reco: [env.LLM_API_KEY_RECO, env.LLM_BASE_URL_RECO],
-    bm: [env.LLM_API_KEY_RECO, env.LLM_BASE_URL_RECO],
-  }[route]
-  if (!env.LLM_SPLIT_KEYS) return { apiKey: env.LLM_API_KEY, baseURL: env.LLM_BASE_URL }
-  return { apiKey: key ?? '', baseURL: url || env.LLM_BASE_URL }
-}
-
-/** One line per job for the startup log: mode, the key's last 4 characters (never the key), host and model. */
-export function describeAi(): string[] {
-  const jobs: [string, Route][] = [['ocr (snap)', 'snap'], ['chatbot (tanya)', 'tanya'], ['chatbot (lender)', 'lender'], ['recommendations (reco)', 'reco'], ['recommendations (bm)', 'bm']]
-  return jobs.map(([name, route]) => {
-    const { apiKey, baseURL } = keyFor(route)
-    const where = apiKey ? `key …${apiKey.slice(-4)} @ ${new URL(baseURL).host}` : 'no key: off'
-    return `${name}: ${env.LLM_SPLIT_KEYS ? 'split' : 'merge'} · ${where} · model ${modelFor(route) || '(none: off)'}`
-  })
-}
-
-export const routeConfigured = (route: Route) => Boolean(provider.client || (keyFor(route).apiKey && modelFor(route)))
-
-function client(route: Route): OpenAI {
-  if (provider.client) return provider.client
-  if (!routeConfigured(route)) throw new ApiError(503, 'llm_unconfigured', 'Ciri AI belum disediakan. Sila isi secara manual.', "AI features aren't set up. Please enter it manually.")
-  const { apiKey, baseURL } = keyFor(route)
+export function clientFor(baseURL: string, apiKey: string): OpenAI {
+  // maxRetries 1: the fallback list is the real retry, so a dead key hands over quickly
+  const make = () => new OpenAI({ baseURL, apiKey, timeout: env.LLM_TIMEOUT_S * 1000, maxRetries: 1, ...(provider.fetch ? { fetch: provider.fetch } : {}) })
+  if (provider.fetch) return make()
   const id = `${baseURL} ${apiKey}`
-  if (!clients.has(id)) clients.set(id, new OpenAI({ baseURL, apiKey, timeout: env.LLM_TIMEOUT_S * 1000, maxRetries: 2 }))
+  if (!clients.has(id)) clients.set(id, make())
   return clients.get(id)!
 }
 
-/** Per-route override (LLM_MODEL_SNAP, …) or the shared LLM_MODEL. */
-export function modelFor(route: Route): string {
-  const perRoute = { snap: env.LLM_MODEL_SNAP, tanya: env.LLM_MODEL_TANYA, lender: env.LLM_MODEL_LENDER, bm: env.LLM_MODEL_BM, reco: env.LLM_MODEL_RECO }[route]
-  return perRoute || env.LLM_MODEL
-}
+export const routeConfigured = (route: Route) => chainFor(route).length > 0
+/** AI is on if a rider-facing job (Snap, Odah Bot, suggestions) has a usable connection. */
+export const llmConfigured = () => (['snap', 'tanya', 'reco'] as const).some(routeConfigured)
+/** The model the job's first usable connection would use ('' = off). */
+export const modelFor = (route: Route) => chainFor(route)[0]?.model ?? ''
 
-/** LLM_REASONING_SNAP, … : the reasoning_effort to send, or none (the provider's default). */
-const reasoningFor = (route: Route) => ({ snap: env.LLM_REASONING_SNAP, tanya: env.LLM_REASONING_TANYA, lender: env.LLM_REASONING_LENDER, bm: env.LLM_REASONING_BM, reco: env.LLM_REASONING_RECO })[route]
+const unconfigured = () => new ApiError(503, 'llm_unconfigured', 'Ciri AI belum disediakan. Sila isi secara manual.', "AI features aren't set up. Please enter it manually.")
+
+type Step = ReturnType<typeof chainFor>[number]
+
+/**
+ * Runs the call on the job's first usable connection, and on a failure caused by the key or the provider moves to
+ * the next. A 400 is our request's fault, so another key wouldn't help; canSwitch() false (a stream already sent
+ * text) also stops it.
+ */
+async function withFallback<R>(route: Route, run: (client: OpenAI, step: Step) => Promise<R>, canSwitch = () => true): Promise<{ result: R; step: Step }> {
+  const chain = chainFor(route)
+  if (!chain.length) throw unconfigured()
+  for (const [i, step] of chain.entries()) {
+    try {
+      return { result: await run(clientFor(step.conn.baseUrl, step.conn.apiKey), step), step }
+    } catch (err) {
+      if (err instanceof ApiError) throw err
+      const status = err instanceof OpenAI.APIError ? err.status : undefined
+      await recordFailure(step.conn.id, status, err instanceof Error ? err.message : String(err))
+      if (status === 400 || !canSwitch() || i === chain.length - 1) throw failed(route, err)
+      log('warn', 'ai fallback', { route, from: step.conn.name, to: chain[i + 1]!.conn.name, status: status ?? 'network' })
+    }
+  }
+  throw unconfigured() // unreachable: the loop returns or throws
+}
 
 function failed(route: Route, err: unknown): ApiError {
   if (err instanceof ApiError) return err
@@ -69,34 +65,30 @@ function failed(route: Route, err: unknown): ApiError {
 /** An image as a message part. Every OpenAI-compatible provider accepts data URLs. */
 export const imagePart = (data: Buffer, mime = 'image/jpeg') => ({ type: 'image_url' as const, image_url: { url: `data:${mime};base64,${data.toString('base64')}` } })
 
-export type ChatResult<T> = { message: ChatCompletionMessage; parsed: T; model: string; inputTokens: number; outputTokens: number }
+export type ChatResult<T> = { message: ChatCompletionMessage; parsed: T; model: string; inputTokens: number; outputTokens: number; connectionId: number | null }
 
 export async function chat<T = undefined>(
   route: Route,
   messages: ChatCompletionMessageParam[],
   opts: { schema?: z.ZodType<T>; tools?: ChatCompletionTool[]; maxTokens?: number } = {},
 ): Promise<ChatResult<T>> {
-  const model = modelFor(route)
-  const body: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = { model, messages, max_tokens: opts.maxTokens ?? 1024 }
-  if (opts.tools) body.tools = opts.tools
-  if (reasoningFor(route)) body.reasoning_effort = reasoningFor(route) as OpenAI.ReasoningEffort
-  if (opts.schema) body.response_format = { type: 'json_schema', json_schema: { name: route, schema: z.toJSONSchema(opts.schema) as Record<string, unknown>, strict: false } }
-  let res: OpenAI.Chat.ChatCompletion
-  try {
+  const { result: res, step } = await withFallback(route, async (client, step) => {
+    const body: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = { model: step.model, messages, max_tokens: opts.maxTokens ?? 1024 }
+    if (opts.tools) body.tools = opts.tools
+    if (step.reasoning) body.reasoning_effort = step.reasoning as OpenAI.ReasoningEffort
+    if (opts.schema) body.response_format = { type: 'json_schema', json_schema: { name: route, schema: z.toJSONSchema(opts.schema) as Record<string, unknown>, strict: false } }
     try {
-      res = await client(route).chat.completions.create(body)
+      return await client.chat.completions.create(body)
     } catch (err) {
       if (!(err instanceof OpenAI.BadRequestError) || !opts.schema) throw err
       // Some providers reject json_schema; the prompt asks for JSON and zod still validates.
       delete body.response_format
-      res = await client(route).chat.completions.create(body)
+      return await client.chat.completions.create(body)
     }
-  } catch (err) {
-    throw failed(route, err)
-  }
+  })
   const message = res.choices[0]!.message
   const parsed = (opts.schema ? parseJson(message.content ?? '', opts.schema) : undefined) as T
-  return { message, parsed, model, inputTokens: res.usage?.prompt_tokens ?? 0, outputTokens: res.usage?.completion_tokens ?? 0 }
+  return { message, parsed, model: step.model, inputTokens: res.usage?.prompt_tokens ?? 0, outputTokens: res.usage?.completion_tokens ?? 0, connectionId: step.conn.id }
 }
 
 /** Like chat() without a schema, but streamed: onText gets the reply's text as it arrives. Tool calls come back whole. */
@@ -106,39 +98,43 @@ export async function chatStream(
   opts: { tools?: ChatCompletionTool[]; maxTokens?: number },
   onText: (text: string) => void,
 ): Promise<ChatResult<undefined>> {
-  const model = modelFor(route)
-  const body: OpenAI.Chat.ChatCompletionCreateParamsStreaming = { model, messages, max_tokens: opts.maxTokens ?? 1024, stream: true, stream_options: { include_usage: true } }
-  if (opts.tools) body.tools = opts.tools
-  if (reasoningFor(route)) body.reasoning_effort = reasoningFor(route) as OpenAI.ReasoningEffort
-  let content = ''
-  let usage: OpenAI.CompletionUsage | undefined
-  const calls: { id: string; name: string; args: string; extra?: unknown }[] = []
-  try {
-    for await (const chunk of await client(route).chat.completions.create(body)) {
-      usage = chunk.usage ?? usage
-      const delta = chunk.choices[0]?.delta
-      if (delta?.content) {
-        content += delta.content
-        onText(delta.content)
+  let sent = false // once the rider has seen text, switching to another provider would repeat or garble it
+  const { result, step } = await withFallback(
+    route,
+    async (client, step) => {
+      const body: OpenAI.Chat.ChatCompletionCreateParamsStreaming = { model: step.model, messages, max_tokens: opts.maxTokens ?? 1024, stream: true, stream_options: { include_usage: true } }
+      if (opts.tools) body.tools = opts.tools
+      if (step.reasoning) body.reasoning_effort = step.reasoning as OpenAI.ReasoningEffort
+      let content = ''
+      let usage: OpenAI.CompletionUsage | undefined
+      const calls: { id: string; name: string; args: string; extra?: unknown }[] = []
+      for await (const chunk of await client.chat.completions.create(body)) {
+        usage = chunk.usage ?? usage
+        const delta = chunk.choices[0]?.delta
+        if (delta?.content) {
+          content += delta.content
+          sent = true
+          onText(delta.content)
+        }
+        for (const tc of delta?.tool_calls ?? []) {
+          // OpenAI sends a call in pieces by index; some providers send each call whole with no index
+          const call = (calls[tc.index ?? (tc.id ? calls.length : calls.length - 1)] ??= { id: '', name: '', args: '' })
+          call.id ||= tc.id ?? ''
+          call.name ||= tc.function?.name ?? ''
+          call.args += tc.function?.arguments ?? ''
+          // Gemini 3 signs each call (extra_content.google.thought_signature) and refuses the next turn without it
+          call.extra ??= (tc as { extra_content?: unknown }).extra_content
+        }
       }
-      for (const tc of delta?.tool_calls ?? []) {
-        // OpenAI sends a call in pieces by index; some providers send each call whole with no index
-        const call = (calls[tc.index ?? (tc.id ? calls.length : calls.length - 1)] ??= { id: '', name: '', args: '' })
-        call.id ||= tc.id ?? ''
-        call.name ||= tc.function?.name ?? ''
-        call.args += tc.function?.arguments ?? ''
-        // Gemini 3 signs each call (extra_content.google.thought_signature) and refuses the next turn without it
-        call.extra ??= (tc as { extra_content?: unknown }).extra_content
-      }
-    }
-  } catch (err) {
-    throw failed(route, err)
+      return { content, usage, calls }
+    },
+    () => !sent,
+  )
+  const message: ChatCompletionMessage = { role: 'assistant', content: result.content, refusal: null }
+  if (result.calls.length) {
+    message.tool_calls = result.calls.map((c, i) => ({ id: c.id || `call_${i}`, type: 'function', function: { name: c.name, arguments: c.args || '{}' }, ...(c.extra ? { extra_content: c.extra } : {}) }))
   }
-  const message: ChatCompletionMessage = { role: 'assistant', content, refusal: null }
-  if (calls.length) {
-    message.tool_calls = calls.map((c, i) => ({ id: c.id || `call_${i}`, type: 'function', function: { name: c.name, arguments: c.args || '{}' }, ...(c.extra ? { extra_content: c.extra } : {}) }))
-  }
-  return { message, parsed: undefined, model, inputTokens: usage?.prompt_tokens ?? 0, outputTokens: usage?.completion_tokens ?? 0 }
+  return { message, parsed: undefined, model: step.model, inputTokens: result.usage?.prompt_tokens ?? 0, outputTokens: result.usage?.completion_tokens ?? 0, connectionId: step.conn.id }
 }
 
 function parseJson<T>(text: string, schema: z.ZodType<T>): T {

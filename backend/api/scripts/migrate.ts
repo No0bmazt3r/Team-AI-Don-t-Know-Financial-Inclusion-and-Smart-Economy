@@ -28,7 +28,7 @@ try {
   } catch (err) {
     const cause = err instanceof Error && err.cause instanceof Error ? err.cause : err // Drizzle wraps the driver's error
     console.error(`database NOT reachable: ${cause instanceof Error ? cause.message : String(cause)}`)
-    console.error('Check DATABASE_URL (Supabase → Connect → Session pooler), DATABASE_SSL_CA, and that the project is not paused.')
+    console.error('Check DATABASE_URL and that the database is reachable from here (on AWS it only accepts connections from inside its VPC).')
     summary('❌ Database not reachable. If the Supabase project is paused, restore it in the dashboard.')
     process.exitCode = 1
   }

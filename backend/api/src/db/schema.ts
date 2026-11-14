@@ -253,10 +253,57 @@ export const llmUsage = pgTable(
     model: text().notNull(),
     inputTokens: integer('input_tokens').notNull(),
     outputTokens: integer('output_tokens').notNull(),
+    // Which saved AI connection served the call (null: before connections existed, or since deleted)
+    connectionId: integer('connection_id').references(() => aiConnections.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
   },
-  (t) => [index('llm_usage_user_route').on(t.userId, t.route, t.createdAt)],
+  (t) => [index('llm_usage_user_route').on(t.userId, t.route, t.createdAt), index('llm_usage_connection').on(t.connectionId, t.createdAt)],
 )
+
+// AI providers the admins manage in /admin/ai: an OpenAI-compatible address and its key. The key is stored encrypted
+// (src/llm/keys.ts, AES-256-GCM with AI_KEYS_MASTER_KEY) and never sent back; only its last 4 characters are.
+export const aiConnections = pgTable('ai_connections', {
+  id: id(),
+  name: text().notNull(),
+  baseUrl: text('base_url').notNull(),
+  keyEnc: text('key_enc').notNull(),
+  keyLast4: text('key_last4').notNull(),
+  // Shown on the privacy page for every connection a job uses (PDPA: who processes the data, and where)
+  providerName: text('provider_name').notNull(),
+  regionNote: text('region_note').notNull().default(''),
+  // ok | cooling (rate or quota limit: skipped until coolingUntil) | failing (key refused: skipped until edited or re-tested)
+  status: text().notNull().default('ok'),
+  coolingUntil: timestamp('cooling_until', { withTimezone: true }),
+  lastError: text('last_error'),
+  lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Each AI job's ordered fallback list: try position 0, and on a key or limit failure the next one.
+export const aiSteps = pgTable(
+  'ai_steps',
+  {
+    id: id(),
+    job: text().notNull(), // snap | tanya | lender | bm | reco
+    position: integer().notNull(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => aiConnections.id, { onDelete: 'cascade' }),
+    model: text().notNull(),
+    reasoning: text(), // reasoning_effort to send; null = the provider's default
+  },
+  (t) => [unique('ai_steps_job_position').on(t.job, t.position)],
+)
+
+// Who changed which AI setting, and when. Never holds a key.
+export const aiAudit = pgTable('ai_audit', {
+  id: id(),
+  actorEmail: text('actor_email').notNull(),
+  action: text().notNull(),
+  detail: text().notNull(),
+  createdAt: createdAt(),
+})
 
 // Web Push subscriptions for the payday reminder, one per device the rider allowed notifications on.
 export const pushSubscriptions = pgTable(

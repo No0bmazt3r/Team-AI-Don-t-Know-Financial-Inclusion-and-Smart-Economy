@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { AdminTabs } from '../../components/AdminTabs'
 import { BarChart, HBars, Legend, LineChart } from '../../components/Chart'
 import { ErrorState } from '../../components/ErrorState'
 import { ScreenHeader } from '../../components/ScreenHeader'
@@ -45,6 +46,7 @@ function Admin() {
   return (
     <>
       <ScreenHeader title={t('admin.title')} back />
+      <AdminTabs />
       <dl className="grid grid-cols-2 gap-2 lg:grid-cols-3">
         {stats.map(([label, value]) => (
           <div key={label} className="rounded-lg border border-line bg-surface p-3">

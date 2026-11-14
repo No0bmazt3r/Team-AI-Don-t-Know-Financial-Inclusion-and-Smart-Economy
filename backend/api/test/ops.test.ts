@@ -6,7 +6,7 @@ import { env } from '../src/env.ts'
 import { clock } from '../src/lib/weeks.ts'
 import { requestLog } from '../src/log.ts'
 import { sendDueReminders } from '../src/services/reminders.ts'
-import { demo, onboard, rider } from './helpers.ts'
+import { agent, demo, onboard, rider } from './helpers.ts'
 
 const SUB = { endpoint: 'https://push.example.com/abc', keys: { p256dh: 'BPk', auth: 'xyz' } }
 const realNow = clock.now
@@ -92,4 +92,18 @@ test('request logs are one JSON line with no query string or officer token', asy
   const officer = JSON.parse(lines.find((l) => l.includes('/o/'))!)
   expect(officer).toMatchObject({ level: 'info', msg: 'request', method: 'GET', path: '/o/:token', status: 200, user: null })
   expect(lines.join('')).not.toContain('secret-token-123')
+})
+
+test('with ORIGIN_VERIFY set, /api and /o need the CloudFront header; the health check stays open', async () => {
+  Object.assign(env, { ORIGIN_VERIFY: 'from-cloudfront' })
+  try {
+    const a = agent()
+    expect((await a.get('/api/health')).status).toBe(200)
+    expect((await a.get('/api/meta')).status).toBe(403)
+    expect((await a.get('/api/meta').set('X-Origin-Verify', 'wrong-value-here')).status).toBe(403)
+    expect((await a.get('/o/x')).status).toBe(403)
+    expect((await a.get('/api/meta').set('X-Origin-Verify', 'from-cloudfront')).status).toBe(200)
+  } finally {
+    Object.assign(env, { ORIGIN_VERIFY: '' })
+  }
 })

@@ -1,9 +1,8 @@
-import OpenAI from 'openai'
 import request from 'supertest'
 import { createApp } from '../src/app.ts'
 import { addWeeks, thisWeek } from '../src/lib/weeks.ts'
 import { provider } from '../src/llm/client.ts'
-import { env } from '../src/env.ts'
+import { ai, JOBS, resetAi } from '../src/llm/keys.ts'
 
 export const app = createApp()
 export const THIS_WEEK = thisWeek()
@@ -65,14 +64,17 @@ export function fakeLlm() {
       { status: 200, headers: { 'content-type': 'application/json' } },
     )
   }
-  provider.client = new OpenAI({ baseURL: 'http://fake/v1', apiKey: 'k', maxRetries: 0, fetch })
-  Object.assign(env, { LLM_API_KEY: 'k', LLM_MODEL: 'shared-model', LLM_MODEL_SNAP: 'vision-model' })
+  provider.fetch = fetch as typeof globalThis.fetch
+  // One connection in memory (not the database): Snap on a vision model, every other job on a shared one
+  ai.conns = new Map([[FAKE_ID, { id: FAKE_ID, name: 'fake', baseUrl: 'http://fake/v1', apiKey: 'fake-key', providerName: 'Fake AI', regionNote: '', status: 'ok', coolingUntil: null }]])
+  ai.jobs = Object.fromEntries(JOBS.map((j) => [j, [{ connectionId: FAKE_ID, model: j === 'snap' ? 'vision-model' : 'shared-model', reasoning: null }]])) as typeof ai.jobs
   return state
 }
+export const FAKE_ID = 900_001 // test/setup.ts puts a matching row in ai_connections, so usage rows can point at it
 
 export function noLlm() {
-  provider.client = null
-  Object.assign(env, { LLM_API_KEY: '', LLM_MODEL: '', LLM_MODEL_SNAP: '' })
+  provider.fetch = null
+  resetAi()
 }
 
 /** A one-page PDF with these lines as real text (like a bank or platform statement). No lines = a page with no text, like a scan. */

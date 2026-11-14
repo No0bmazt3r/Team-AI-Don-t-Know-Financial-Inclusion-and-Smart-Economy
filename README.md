@@ -60,7 +60,7 @@
 7. [How the salary engine works](#how-the-salary-engine-works)
 8. [Results (honest status)](#results-honest-status)
 9. [Security](#security) · [Privacy (PDPA)](#privacy-pdpa) · [Legal positioning](#legal-positioning)
-10. [Deployment](#deployment)
+10. [Deployment](#deployment) · [Running cost](#running-cost) · [Infrastructure](infra/README.md)
 11. [Contributing](#contributing) · [License](#license) · [Team](#team-ai-dont-know)
 
 ---
@@ -194,13 +194,13 @@ Every backend setting is documented in [`backend/.env.example`](backend/.env.exa
 
 | Variable | Needed for |
 |---|---|
-| `LLM_API_KEY` (or `LLM_API_KEY_SNAP` / `_TANYA` / `_RECO` with `LLM_SPLIT_KEYS=true`) | Snap (OCR), Odah Bot (chatbot), pot suggestions |
+| `AI_KEYS_MASTER_KEY` (`openssl rand -base64 32`) | Storing AI keys, which are then added in the app under `/admin/ai` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in (the demo login works without it) |
-| `ADMIN_EMAILS` | The `/admin` usage page |
+| `ADMIN_EMAILS` | The `/admin` pages (usage, AI keys) |
 
 </div>
 
-**Any OpenAI-compatible AI provider works.** Groq, Gemini, OpenRouter, OpenAI, Mistral, Ollama and others: set a base URL, key and model per job (the list of base URLs is in `backend/.env.example`). Switching provider is never a code change. Before sending real rider data, check the provider's data terms: Groq offers zero data retention, while Gemini's **free** tier may use prompts to improve Google's products.
+**AI keys live in the app, not in `.env`.** Sign in with an `ADMIN_EMAILS` account and open **Usage → AI keys** (`/admin/ai`). There you add connections (any OpenAI-compatible provider: Groq, Gemini, OpenRouter, OpenAI, Mistral, Ollama and others) and give each AI job an ordered fallback list of connection and model. A key the provider refuses is skipped until you fix it; a rate- or quota-limited key is skipped for 10 minutes and the next one takes the call, so a used-up key never reaches riders. Keys are stored encrypted (AES-256-GCM with `AI_KEYS_MASTER_KEY`), only their last 4 characters are ever shown, and every change is logged on the page. Switching provider is never a code change or a redeploy. Before sending real rider data, check the provider's data terms: Groq offers zero data retention, while Gemini's **free** tier may use prompts to improve Google's products.
 
 ### 4. Commands
 
@@ -228,7 +228,6 @@ Every backend setting is documented in [`backend/.env.example`](backend/.env.exa
 ```
 Coinvoy/
 ├── frontend/                 React 19 PWA: src/routes (screens), src/components, src/lib, src/i18n (ms.json, en.json)
-│   ├── vercel.json           Vercel build settings, /api forwarding, security headers
 │   └── .env.example          the app's settings (none needed)
 ├── backend/                  everything server-side, deployed as one container
 │   ├── api/
@@ -248,7 +247,9 @@ Coinvoy/
 │   ├── Dockerfile            the one image: API on $PORT, engine on 127.0.0.1 inside
 │   ├── start.sh              starts both, stops both
 │   └── .env.example          every backend setting
-├── .github/workflows/        CI checks, deploy-frontend (Vercel), database (Supabase), keepalive
+├── infra/                    Terraform: CloudFront + S3, ECS Express Mode, ECR, Secrets Manager, GitHub OIDC roles
+├── scripts/                  bootstrap-state.sh (Terraform state bucket)
+├── .github/workflows/        checks, deploy-frontend, deploy-backend, infra (Terraform)
 └── .github/                  issue and PR templates, CODEOWNERS
 ```
 
@@ -256,56 +257,64 @@ Coinvoy/
 
 ## Architecture
 
-Coinvoy is a three-service production architecture with GitHub Actions coordinating delivery:
+Coinvoy runs on AWS, managed with Terraform ([`infra/`](infra/main.tf)), with GitHub Actions coordinating delivery:
 
-- **Frontend — Vercel:** hosts the React/Vite progressive web app. The browser uses the Vercel URL as its single public origin; Vercel rewrites `/api/*` and `/o/*` requests to the Render backend.
-- **Backend — Render:** runs the Node/Express API and the private Python/FastAPI salary engine together in one Docker container. The ML engine listens only on `127.0.0.1`, so it is not publicly exposed.
-- **Database — Supabase:** provides the production PostgreSQL database. The backend and GitHub Actions connect to Supabase directly; local development and tests use PGlite.
-- **Delivery control plane — GitHub Actions:** runs checks, applies database migrations, verifies the exact commit, and gates the owner-triggered Vercel and Render deployments. A scheduled keepalive pings the Render health endpoint.
+- **Frontend: S3 + CloudFront.** The React/Vite progressive web app is served from a private S3 bucket through CloudFront, which is the browser's single public origin. CloudFront forwards `/api/*` and `/o/*` to the backend.
+- **Backend: ECS Express Mode (Fargate).** One container runs the Node/Express API and the private Python/FastAPI salary engine together. The engine listens only on `127.0.0.1`, and the API only answers requests that came through CloudFront.
+- **Database: RDS PostgreSQL 17** (private, inside the VPC). Migrations run as the backend starts. Local development and tests use PGlite.
+- **Secrets: AWS Secrets Manager.** `coinvoy/api` (Google, push and the AI-key master key) and `coinvoy/db` (the database password, generated by Terraform without ever being stored in state). ECS hands both to the container. AI provider keys themselves are managed in the app, encrypted in the database.
+- **Delivery: GitHub Actions** runs checks, applies database migrations, and gates the owner-triggered deploys, logging in to AWS through OIDC with no stored keys.
 
 ### System
 
 ```mermaid
 flowchart LR
   rider(["Rider's phone<br/>PWA · BM / EN"])
+  admin(["Admin<br/>/admin/ai"])
 
-  subgraph vercel["Vercel"]
-    pwa["The app (PWA)<br/>offline shell · forwards /api and /o"]
-  end
-
-  subgraph render["Render (free) · one container: backend/"]
+  subgraph aws["AWS · ap-southeast-1 · Terraform: infra/"]
     direction TB
-    subgraph web["API: backend/api (Node 24 + Express 5), on $PORT"]
+    cf["CloudFront<br/>one address · security headers<br/>forwards /api and /o"]
+    s3[("S3, private<br/>the app (PWA)")]
+    subgraph ecs["ECS Express Mode · Fargate · exactly 1 task"]
       direction TB
-      routes["/api/* routes<br/>zod · sessions · rate limits"]
-      llm["src/llm/<br/>Snap · Odah Bot · number guard"]
+      subgraph web["API: backend/api · Node 24 + Express 5 · :8000"]
+        direction TB
+        routes["/api/* routes<br/>zod · sessions · rate limits<br/>X-Origin-Verify check"]
+        llm["src/llm/<br/>Snap · Odah Bot · number guard<br/>per-job fallback lists"]
+      end
+      ml["Engine: backend/ml · Python + FastAPI · 127.0.0.1 only<br/>salary engine · BM classifier · Penyata PDF"]
     end
-    ml["Engine: backend/ml (Python + FastAPI), on 127.0.0.1 only<br/>salary engine · BM classifier · Penyata PDF"]
+    db[("RDS PostgreSQL 17<br/>private · backups 7 days<br/>AI keys encrypted")]
+    secrets["Secrets Manager<br/>coinvoy/api · coinvoy/db"]
+    ecr[("ECR<br/>image per commit")]
   end
 
-  db[("Supabase Postgres<br/>(PGlite locally)")]
-
-  actions["GitHub Actions<br/>checks · migrations · gated deploys<br/>keepalive"]
+  actions["GitHub Actions · OIDC<br/>checks · deploy app · deploy backend · terraform"]
   google["Google sign-in<br/>(OpenID Connect)"]
   ai["AI providers<br/>(any OpenAI-compatible)"]
 
-  rider <-->|HTTPS, one address| pwa
-  pwa <-->|/api · /o| routes
-  routes <--> db
+  rider <-->|HTTPS| cf
+  admin <-->|HTTPS| cf
+  cf --> s3
+  cf <-->|/api · /o + origin header| routes
+  secrets -.->|at task start| ecs
+  ecr -.->|image| ecs
+  routes <-->|TLS| db
   routes -->|localhost + shared token| ml
   routes --> llm
-  llm -->|OCR · chat · suggestions| ai
+  llm -->|key 1 → key 2 → …| ai
   rider -.->|sign in| google
   routes -.->|verify tokens| google
-  actions -.->|deploy frontend| vercel
-  actions -.->|deploy backend| render
-  actions -.->|check / migrate| db
+  actions -.->|push image · update service| ecr
+  actions -.->|upload · refresh| s3
 ```
 
-- **One address for the browser.** Vercel serves the app and forwards `/api` and `/o` to the API, so the session cookie is first-party and there's no CORS.
+- **One address for the browser.** CloudFront serves the app and forwards `/api` and `/o` to the API, so the session cookie is first-party and there's no CORS.
 - **The engine is private and stateless.** It runs in the same container as the API, listening on `127.0.0.1` only, with no database, users or AI; the API sends a rider's data as JSON and stores what comes back.
 - **The AI reads and talks; code computes.** Every number a rider sees comes from the engine or the database.
-- **Deployments are gated.** GitHub Actions runs checks and the Supabase migration workflow for the exact commit before the owner can deploy the frontend to Vercel or the backend to Render.
+- **AI keys are managed in the app.** Each AI job has an ordered list of provider keys; a refused or rate-limited key hands the call to the next, so riders never hit a used-up key. Keys are encrypted in the database, and admins rotate them at `/admin/ai` without a redeploy.
+- **Deployments are gated.** GitHub Actions confirms the checks passed for the exact commit before the owner can deploy the app or the backend, each on its own.
 
 ### Confirming a week → a new salary
 
@@ -354,7 +363,7 @@ The reply streams word by word, but a word is only shown once the guard has pass
 | AI | `openai` SDK against any OpenAI-compatible provider, a key and model per job |
 | Auth | Google OpenID Connect (code flow + PKCE) and One Tap; server-side sessions |
 | Tests and CI | vitest, supertest, pytest; GitHub Actions (lint, types, tests on PGlite and real Postgres, bundle budget, gitleaks) |
-| Hosting | Vercel (the app) · Render free (the backend, one container) · Supabase (Postgres) |
+| Hosting | AWS: S3 + CloudFront (the app) · ECS Express Mode on Fargate (the backend, one container) · RDS PostgreSQL · Secrets Manager · Terraform |
 
 </div>
 
@@ -488,6 +497,10 @@ All routes are under `/api` and return JSON. Errors look like `{ "error": { "cod
 | GET · POST · DELETE | `/api/push` | Payday reminder subscription |
 | POST | `/api/push/test` | Send a test reminder |
 | GET | `/api/admin/usage` | Usage counts, retention, AI cost (`ADMIN_EMAILS` only; 404 otherwise) |
+| GET | `/api/admin/ai` | AI connections (key's last 4 only), each job's fallback list, health, change log (`ADMIN_EMAILS` only) |
+| POST · PATCH · DELETE | `/api/admin/ai/connections[/:id]` | Add, edit (re-tests), delete a connection; keys go in and never come out |
+| POST · GET | `/api/admin/ai/connections/:id/test` · `/models` | Test the key with a real call · the provider's model list |
+| PUT | `/api/admin/ai/jobs/:job` | Replace a job's ordered fallback list |
 | GET | `/api/health` | Health check |
 | GET | `/api/meta` | Public facts for the privacy page (AI provider, region, contact) |
 
@@ -554,7 +567,9 @@ All routes are under `/api` and return JSON. Errors look like `{ "error": { "cod
 | Made-up numbers from the AI | The number guard, tested |
 | Prompt injection via a screenshot or pasted text | No tools on those routes, schema-only output, clear delimiters; tested with an injected screenshot |
 | Runaway AI costs | Per-rider daily limits and a monthly call cap; manual entry always works |
-| Leaked keys | Secrets only in env vars; `.env` and OAuth client files git-ignored; gitleaks in CI |
+| Leaked keys | Server secrets in AWS Secrets Manager, never in git or Terraform state; `.env` and OAuth client files git-ignored; gitleaks in CI |
+| AI provider keys | Managed in `/admin/ai` (admins only), stored AES-256-GCM-encrypted, never returned (last 4 characters only), every change in an audit log |
+| Bypassing the edge | The API refuses `/api` and `/o` requests that didn't come through CloudFront (`X-Origin-Verify`); the database has no public address |
 | Officer link leakage | Random 128-bit tokens stored hashed, 7-day expiry, revocable (410), noindex |
 | Brute force | Rate limit on the auth routes; CSP, nosniff and Referrer-Policy headers |
 | Secrets in logs | Request logs carry method, path, status, time and rider ID only; officer tokens are masked |
@@ -586,90 +601,91 @@ Screenshots and statement PDFs are read in memory and **never stored**; EXIF is 
 
 ## Deployment
 
-Three free services. The app's deploy and the database's migrations are buttons only the repository owner can press; Render builds the backend straight from this repository. The browser only ever talks to the app's address: Vercel forwards `/api` and `/o` to the backend, so the sign-in cookie stays first-party and there's no CORS.
+Everything runs on AWS in `ap-southeast-1`, described by Terraform in [`infra/`](infra/main.tf). Deploys are buttons only the repository owner can press, and the frontend and backend deploy separately.
 
 <div align="center">
 
-| Part | Where (free) | How it deploys |
+| Part | Where | How it deploys |
 |---|---|---|
-| The app (`frontend/`) | **Vercel** | [`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml): owner clicks *Run workflow* on `main` |
-| The backend (`backend/`: API + engine) | **Render**, one container | Render builds [`backend/Dockerfile`](backend/Dockerfile) from this repository |
-| The database | **Supabase** Postgres | [`database.yml`](.github/workflows/database.yml): owner clicks *Run workflow* → **check** (changes nothing) or **migrate** |
-| Staying awake | GitHub Actions | [`keepalive.yml`](.github/workflows/keepalive.yml) pings every 10 minutes, so Render doesn't sleep and Supabase doesn't pause |
+| The app (`frontend/`) | **S3 + CloudFront** | [`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml): owner runs it on `main` |
+| The backend (`backend/`: API + engine) | **ECS Express Mode**, one Fargate task (image in ECR) | [`deploy-backend.yml`](.github/workflows/deploy-backend.yml): owner runs it on `main` |
+| The database | **RDS PostgreSQL 17**, private, `db.t4g.micro` | Migrations apply as the new backend task starts (`MIGRATE_ON_START=true`) |
+| Secrets | **Secrets Manager** `coinvoy/api`, `coinvoy/db` | `coinvoy/api`: set once with the AWS CLI. `coinvoy/db`: Terraform generates it |
+| AI provider keys | The database, encrypted | In the app: `/admin/ai` |
+| The infrastructure | **Terraform** (`infra/`, state in S3) | [`infra.yml`](.github/workflows/infra.yml): plan on pull requests, apply when the owner runs it |
 
 </div>
 
-All deploy secrets live in one GitHub **Environment** called `production`, which only `main` may use: **Settings → Environments → New environment** → `production` → **Deployment branches and tags** → **Selected branches and tags** → add `main`. A workflow on any other branch can't read them.
+Both deploy workflows refuse to run unless **Coinvoy checks** passed for the same commit. They log in to AWS with GitHub OIDC, so no AWS keys are stored in GitHub. There are three IAM roles: `coinvoy-github-plan` (read-only, used by pull requests), `coinvoy-github-apply` (admin, used only by the `infra` environment) and `coinvoy-github-deploy` (push images, update the service, write the bucket, refresh CloudFront; used only by the `production` environment).
 
-### 1. The database on Supabase
+The backend always runs **exactly one task**. Payday reminders run on a timer inside the API, so a second task would send them twice, and migrations at startup can't race.
 
-1. Create a project at [supabase.com](https://supabase.com) (region **Southeast Asia (Singapore)**), and save the database password. Under **Security**, turn **Enable Data API** off (Coinvoy talks to Postgres directly, so the auto-generated REST API would only be an extra way in) and leave **automatic RLS** on. Don't connect GitHub there: migrations run from this repository's own workflow.
-2. **Connect** (top bar) → **Session pooler** → copy the connection string and put your password in it. Use the session pooler, not "Direct connection": the direct one is IPv6-only, which GitHub Actions and Render can't reach. Don't add `?sslmode=…` to it.
-3. **Project Settings → Database → SSL Configuration** → **Download certificate**. The backend verifies the database's certificate with it.
-4. Add two secrets to the GitHub `production` environment: `DATABASE_URL` (step 2) and `DATABASE_SSL_CA` (the whole certificate file's text, including the `BEGIN`/`END` lines).
+The database has no public address: only things inside the VPC (the backend) can reach it, over verified TLS. Daily backups are kept 7 days with point-in-time restore, deletion protection is on, and a final snapshot is taken if it's ever destroyed. Nobody knows the password: Terraform generates it during the apply and writes it straight to RDS and `coinvoy/db` through write-only arguments, so it's never in state. To change it, raise `db_password_version` in `infra/main.tf`, apply, then run **Deploy backend**.
 
-### 2. Migrate the database
+### 1. GitHub environments and variables
 
-The **Database (Supabase)** workflow checks the database automatically on every push to `main`, reports `migration_needed=true` or `migration_needed=false`, and applies pending migrations when needed. A manual **check** remains read-only; a manual **migrate** performs the check and applies pending migrations. The deployment workflows require a successful database workflow run for the exact commit.
+- **Environments** (Settings → Environments), each limited to the `main` branch under **Deployment branches and tags**:
+  - `production`: the deploy workflows.
+  - `infra`: Terraform apply. Add yourself as a **required reviewer** to approve each apply.
+- **Repository variables** (Settings → Secrets and variables → Actions → Variables): `AWS_ACCOUNT_ID`, `ECS_SERVICE_ARN` and `CLOUDFRONT_DISTRIBUTION_ID` (Terraform prints the commands in step 2), and `ALERT_EMAIL` for budget and downtime emails.
+- Leftovers from Vercel, Render and Supabase can be deleted: the `production` secrets `VERCEL_*`, `RENDER_DEPLOY_HOOK_URL`, `DATABASE_URL`, `DATABASE_SSL_CA`, and the `BACKEND_URL` variable.
 
-### 3. The backend on Render
+### 2. First run of Terraform (once, from your machine)
 
-1. On [render.com](https://render.com): **New → Web Service** → connect this GitHub repository.
-2. Settings:
+GitHub can only log in to AWS after Terraform has created the OIDC roles, so the first run is local. You need an AWS admin login (`aws configure` or SSO), Terraform 1.11 or newer, Docker and `openssl`.
 
-<div align="center">
+```bash
+# 1. The state bucket, then terraform init
+bash scripts/bootstrap-state.sh
 
-| Setting | Value |
-|---|---|
-| Language / Runtime | **Docker** |
-| Branch | `main` |
-| Region | **Singapore** |
-| Root Directory | *(leave empty: the repo root)* |
-| Dockerfile Path | `backend/Dockerfile` |
-| Docker Build Context Directory | `.` (the repo root, where the pnpm workspace files are) |
-| Instance Type | **Free** |
-| Health Check Path (Advanced) | `/api/health` |
-| Auto-Deploy | **Off** if you want to migrate first and deploy by hand (**Manual Deploy → Deploy latest commit**); or on, remembering to run *migrate* first when the schema changed |
+# 2. The image registry and the (empty) app secret first
+terraform -chdir=infra apply -target=aws_ecr_repository.api -target=aws_secretsmanager_secret.api
 
-</div>
+# 3. The app secret: a JSON object with every key in secret_keys (infra/app.auto.tfvars), e.g.
+#    {"AI_KEYS_MASTER_KEY":"<openssl rand -base64 32>","GOOGLE_CLIENT_SECRET":"…","VAPID_PUBLIC_KEY":"…",
+#     "VAPID_PRIVATE_KEY":"…","ADMIN_EMAILS":"you@example.com","PRIVACY_CONTACT_EMAIL":"…"}
+#    Write it outside the repo and delete it afterwards. Remove keys you don't use from secret_keys rather than leaving them empty.
+aws secretsmanager put-secret-value --secret-id coinvoy/api --secret-string "file://$HOME/coinvoy-secret.json"
+rm "$HOME/coinvoy-secret.json"
 
-3. **Environment** on Render: copy what you need from [`backend/.env.example`](backend/.env.example). The deployed values that differ from local:
+# 4. A first image for the service to start from
+REPO=$(terraform -chdir=infra state show -no-color aws_ecr_repository.api | awk -F'"' '/repository_url/{print $2}')
+aws ecr get-login-password | docker login --username AWS --password-stdin "${REPO%%/*}"
+docker build -f backend/Dockerfile -t "$REPO:initial" . && docker push "$REPO:initial"
 
-<div align="center">
+# 5. Everything else: the database (~10 minutes), the backend (it creates the tables as it starts) and CloudFront
+TF_VAR_alert_email=you@example.com terraform -chdir=infra apply
+terraform -chdir=infra output -raw github_variables | bash   # sets the repository variables
+terraform -chdir=infra output app_url
+```
 
-| Variable | Deployed value |
-|---|---|
-| `DATABASE_URL`, `DATABASE_SSL_CA` | Same as the GitHub secrets |
-| `MIGRATE_ON_START` | `false` (the Database workflow migrates) |
-| `APP_URL` | Your Vercel address, e.g. `https://coinvoy.vercel.app` |
-| `COOKIE_SECURE` | `true` |
-| `TRUST_PROXY` | `2` (Vercel, then Render's proxy) |
-| `PGLITE_PORT` | `0` |
-| AI keys, Google client, `ADMIN_EMAILS`, `PRIVACY_CONTACT_EMAIL`, VAPID keys | As needed |
+6. Paste the `app_url` output into `app_url` in [`infra/app.auto.tfvars`](infra/app.auto.tfvars), then apply again. This is a separate step because CloudFront needs the backend's address before it exists, so the backend can't learn CloudFront's address in the same apply.
+7. If you set `ALERT_EMAIL`, confirm the subscription email from AWS, or alerts won't arrive.
+8. Open `<app_url>/admin/ai`, signed in with an `ADMIN_EMAILS` account, and add your AI connections and each job's fallback list. Until then AI is off and riders enter things by hand.
 
-</div>
+**Keep `AI_KEYS_MASTER_KEY` safe.** If it changes or is lost, the stored AI keys can't be decrypted: the page marks them "Can't decrypt: re-enter the key", and nothing else breaks. To change any `coinvoy/api` value later, edit it in the AWS console (**Secrets Manager → coinvoy/api → Retrieve secret value → Edit**) and run **Deploy backend**, which starts a fresh task that reads the new value. Plain settings live in `infra/app.auto.tfvars` and go live through **Infra (Terraform)**.
 
-4. Add the Render service's secret deploy hook as `RENDER_DEPLOY_HOOK_URL` in the GitHub `production` environment. Render documents this under [Deploy hooks](https://render.com/docs/deploy-hooks).
-5. Deploy. When it's live, `https://<your-service>.onrender.com/api/health?db=1` should answer `{"ok":true,…}` with the deployed commit as `version`.
-6. In GitHub **Settings → Secrets and variables → Actions → Variables**, add the repository variable `BACKEND_URL` = the service's address (e.g. `https://coinvoy-backend.onrender.com`, no trailing slash). The keep-alive pings it.
+After the first run, Terraform changes go through pull requests (the plan shows in the run summary) and **Actions → Infra (Terraform) → Run workflow** on `main`.
 
-### 4. The app on Vercel
+### 3. Deploy
 
-1. From the **repo root** (Vercel's monorepo docs say not to run the CLI from the subfolder): `npm install --global vercel`, `vercel login`, then `vercel link`. Create a new project and answer **`frontend`** for the code directory. This writes `.vercel/project.json` (git-ignored) with the `orgId` and `projectId`.
-2. In the Vercel project: **Settings → Build and Deployment** → check **Root Directory** is `frontend`, **Include files outside the root directory** is on, and **Node.js Version** is 24.x. Build settings come from [`frontend/vercel.json`](frontend/vercel.json).
-3. Create a token at **vercel.com → Account Settings → Tokens**, and add `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` to the GitHub `production` environment.
-4. Set the backend's address in `frontend/vercel.json` (the two `rewrites`) if it isn't `https://coinvoy-backend.onrender.com`.
-5. In **Settings → Environments → production**, configure a required reviewer if the Vercel deployment must wait for your manual approval.
-6. Run **Actions → Deploy backend (Render) → Run workflow** on `main` after **Coinvoy checks** has passed and the database has been manually migrated. It verifies both results for the exact commit and triggers Render to deploy that commit.
-7. Run **Actions → Deploy app (Vercel) → Run workflow** on `main` after the same checks and migration have passed. It verifies both results for the exact commit, then waits for the `production` approval before deploying. The run's summary shows the live URL.
+1. Push to `main` and wait for **Coinvoy checks** to pass. CI runs every migration against Postgres, so a broken one fails there first.
+2. **Actions → Deploy backend (AWS) → Run workflow** builds the image tagged with the commit, pushes it to ECR, switches the service to it and waits until the new task is healthy. The new task applies pending migrations before it starts serving; if that fails, the deploy fails and the old task keeps running. Running it again for the same commit reuses the image.
+3. **Actions → Deploy app (AWS) → Run workflow** builds the app, uploads it to S3 (hashed assets cached for a year, everything else re-checked on every load) and refreshes CloudFront.
 
-### 5. Google sign-in
+Run either one on its own. Deploy the backend first only when the app depends on a new API. `https://<app_url>/api/health` shows the running commit as `version`.
 
-In Google Cloud Console, add the Vercel address as an authorized JavaScript origin and `https://<vercel-address>/api/auth/google/callback` as a redirect URI.
+### 4. Google sign-in
 
-Once everything is live, `https://<vercel-address>/try` is the one-scan demo link for a QR code. On the free plan, Render may still restart the service now and then; the first request after that takes about a minute.
+In Google Cloud Console, add the CloudFront address (`app_url`) as an authorized JavaScript origin and `<app_url>/api/auth/google/callback` as a redirect URI.
+
+Once everything is live, `<app_url>/try` is the one-scan demo link for a QR code. The estimated cost is in [Running cost](#running-cost) below; how the infrastructure is built and run is in [`infra/README.md`](infra/README.md).
 
 ---
+
+## Running cost
+
+About **$80 a month** on AWS in Singapore (on-demand, hackathon traffic): one Fargate task (~$22), the load balancer Express Mode creates (~$21), public IPv4 addresses (~$15), RDS (~$21), and small change for secrets, logs and images. CloudFront and S3 fit in the free tier. A $100 budget alert emails you at 80% of the forecast. Nothing in the setup can scale or loop on its own: the task count is fixed at one, there's no NAT gateway, storage and logs are capped, and no workflow runs on a schedule. The full breakdown, ways to make it cheaper, and the runaway-cost check are in [`infra/README.md`](infra/README.md#cost).
 
 ## Contributing
 

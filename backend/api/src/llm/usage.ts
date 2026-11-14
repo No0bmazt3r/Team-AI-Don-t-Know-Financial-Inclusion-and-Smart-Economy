@@ -27,5 +27,5 @@ export async function checkQuota(userId: number, route: Route, calls = 1) {
 }
 
 export async function logUsage(userId: number | null, route: Route, r: ChatResult<unknown>) {
-  await db.insert(schema.llmUsage).values({ userId, route, model: r.model, inputTokens: r.inputTokens, outputTokens: r.outputTokens })
+  await db.insert(schema.llmUsage).values({ userId, route, model: r.model, inputTokens: r.inputTokens, outputTokens: r.outputTokens, connectionId: r.connectionId })
 }

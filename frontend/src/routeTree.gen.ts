@@ -30,6 +30,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSnapRouteImport } from './routes/_app/snap'
 import { Route as AppTabungRouteImport } from './routes/_app/tabung'
 import { Route as AppTanyaRouteImport } from './routes/_app/tanya'
+import { Route as AppAdminAiRouteImport } from './routes/_app/admin_.ai'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -135,6 +136,11 @@ const AppTanyaRoute = AppTanyaRouteImport.update({
   path: '/tanya',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminAiRoute = AppAdminAiRouteImport.update({
+  id: '/admin_/ai',
+  path: '/admin/ai',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/snap': typeof AppSnapRoute
   '/tabung': typeof AppTabungRoute
   '/tanya': typeof AppTanyaRoute
+  '/admin/ai': typeof AppAdminAiRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -179,6 +186,7 @@ export interface FileRoutesByTo {
   '/tabung': typeof AppTabungRoute
   '/tanya': typeof AppTanyaRoute
   '/': typeof AppIndexRoute
+  '/admin/ai': typeof AppAdminAiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -203,6 +211,7 @@ export interface FileRoutesById {
   '/_app/tabung': typeof AppTabungRoute
   '/_app/tanya': typeof AppTanyaRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/admin_/ai': typeof AppAdminAiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -227,6 +236,7 @@ export interface FileRouteTypes {
     | '/snap'
     | '/tabung'
     | '/tanya'
+    | '/admin/ai'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -249,6 +259,7 @@ export interface FileRouteTypes {
     | '/tabung'
     | '/tanya'
     | '/'
+    | '/admin/ai'
   id:
     | '__root__'
     | '/_app'
@@ -272,6 +283,7 @@ export interface FileRouteTypes {
     | '/_app/tabung'
     | '/_app/tanya'
     | '/_app/'
+    | '/_app/admin_/ai'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -432,6 +444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTanyaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin_/ai': {
+      id: '/_app/admin_/ai'
+      path: '/admin/ai'
+      fullPath: '/admin/ai'
+      preLoaderRoute: typeof AppAdminAiRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -451,6 +470,7 @@ interface AppRouteChildren {
   AppTabungRoute: typeof AppTabungRoute
   AppTanyaRoute: typeof AppTanyaRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppAdminAiRoute: typeof AppAdminAiRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -469,6 +489,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTabungRoute: AppTabungRoute,
   AppTanyaRoute: AppTanyaRoute,
   AppIndexRoute: AppIndexRoute,
+  AppAdminAiRoute: AppAdminAiRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
