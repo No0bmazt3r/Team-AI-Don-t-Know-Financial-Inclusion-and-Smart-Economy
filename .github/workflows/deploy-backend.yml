@@ -80,6 +80,7 @@ jobs:
           container=$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" \
             --query 'service.activeConfigurations[0].primaryContainer' --output json \
             | jq -c --arg image "${{ steps.image.outputs.image }}" '.image = $image')
+          echo "DEPLOY_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$container" >/dev/null
       - name: Wait until the new task is healthy
         run: |
@@ -102,19 +103,26 @@ jobs:
               --query 'events[-60:].message' --output text || true
             echo "::endgroup::"
           }
+          # Done = the live API (through CloudFront) reports this commit. A deployment's status alone can't be
+          # trusted right after the update: the new deployment may not be listed yet, so the previous one's
+          # SUCCESSFUL would pass the check while the old image is still serving.
+          app_url=$(sed -n 's/^app_url *= *"\(.*\)"/\1/p' infra/app.auto.tfvars)
           for _ in $(seq 1 90); do # 90 × 20 s = 30 minutes
-            read -r status reason < <(aws ecs list-service-deployments --cluster "$cluster" --service "$SERVICE_ARN" \
-              --output json | jq -r '.serviceDeployments | max_by(.createdAt) | "\(.status) \(.statusReason // "")"')
-            echo "$(date +%T) deployment: $status $reason"
-            case "$status" in
-              SUCCESSFUL)
-                echo "Backend running ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
-                exit 0 ;;
-              STOPPED|ROLLBACK_*)
-                echo "::error::Deployment $status: $reason (ECS keeps the previous task running)"
-                diagnose
-                exit 1 ;;
-            esac
+            live=$(curl -fsS -m 10 "$app_url/api/health" | jq -r '.version // empty' || true)
+            # Only deployments started by this run's update count as failed
+            failed=$(aws ecs list-service-deployments --cluster "$cluster" --service "$SERVICE_ARN" \
+              --created-at "after=$DEPLOY_STARTED" --output json \
+              | jq -r '[.serviceDeployments[] | select(.status | test("^(STOPPED|ROLLBACK_)"))][0] | select(.) | "\(.status) \(.statusReason // "")"' || true)
+            echo "$(date +%T) live: ${live:-unreachable}"
+            if [ "$live" = "$GITHUB_SHA" ]; then
+              echo "Backend running ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ -n "$failed" ]; then
+              echo "::error::Deployment $failed (ECS keeps the previous task running)"
+              diagnose
+              exit 1
+            fi
             sleep 20
           done
           echo "::error::Deployment still not finished after 30 minutes"
