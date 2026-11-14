@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Calculator, FileText, Minus, Plus } from 'lucide-react'
+import { AlertTriangle, Calculator, FileText, Minus, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Chip } from '../onboarding'
 import { ResultPlaceholder } from '../../components/EmptyState'
@@ -8,6 +8,7 @@ import { InfoTip } from '../../components/InfoTip'
 import { MoneyField } from '../../components/MoneyField'
 import { RiskBadge } from '../../components/RiskBadge'
 import { ScreenHeader } from '../../components/ScreenHeader'
+import { Sheet } from '../../components/Sheet'
 import { useI18n } from '../../i18n/t'
 import { api, errorText, penyataQuery, prefetch, type Risk } from '../../lib/api'
 import { formatRM } from '../../lib/money'
@@ -29,13 +30,22 @@ function SemakLayak() {
   const check = useMutation({
     mutationFn: () => api<Layak>('/api/layak', { body: { item: item.trim() || t('layak.itemDefault'), priceSen: price, depositSen: deposit ?? 0, months, flatRatePct: Number(rate) || 0 } }),
   })
+  const [problem, setProblem] = useState<string | null>(null)
   const r = check.data
   const rm = (sen: number) => formatRM(sen, { whole: true })
+  // Catch the API's limits here so the rider gets plain words in a popup, not "Invalid input: priceSen"
+  const submit = () => {
+    if (!price) return
+    const dep = deposit ?? 0
+    if (price > MAX_SEN || dep > MAX_SEN) return setProblem(t('layak.tooBig', { max: rm(MAX_SEN) }))
+    if (dep >= price) return setProblem(t('layak.depositTooBig'))
+    check.mutate(undefined, { onError: (e) => setProblem(errorText(e, lang, t('common.tryAgain'))) })
+  }
   return (
     <>
       <ScreenHeader title={t('layak.title')} back />
       <div className="contents lg:grid lg:grid-cols-2 lg:items-start lg:gap-4">
-        <form className="flex flex-col gap-4 rounded-lg border-2 border-outline bg-surface p-5" onSubmit={(e) => { e.preventDefault(); if (price) check.mutate() }}>
+        <form className="flex flex-col gap-4 rounded-lg border-2 border-outline bg-surface p-5" onSubmit={(e) => { e.preventDefault(); submit() }}>
           <label className="flex flex-col gap-1 text-sm font-semibold">
             {t('layak.item')}
             <input value={item} onChange={(e) => setItem(e.target.value)} placeholder={t('layak.itemPlaceholder')} maxLength={40} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal" />
@@ -48,8 +58,13 @@ function SemakLayak() {
             <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ''))} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal tabular-nums" />
           </label>
           <button type="submit" className="btn btn-primary" disabled={!price || check.isPending}>{t('layak.check')}</button>
-          {check.isError && <p role="alert" className="text-sm font-semibold text-[var(--risky)]">{errorText(check.error, lang, t('common.tryAgain'))}</p>}
         </form>
+        <Sheet open={problem !== null} onClose={() => setProblem(null)} title={t('layak.problemTitle')}>
+          <div role="alert" className="flex flex-col gap-4">
+            <p className="flex gap-3 text-base"><AlertTriangle size={22} aria-hidden className="mt-0.5 shrink-0 text-[var(--risky)]" />{problem}</p>
+            <button type="button" className="btn btn-primary" onClick={() => setProblem(null)}>{t('layak.fixIt')}</button>
+          </div>
+        </Sheet>
 
         {!r && <ResultPlaceholder icon={Calculator} body={t('common.resultHere')} />}
         {r && (
@@ -76,6 +91,7 @@ function SemakLayak() {
 }
 
 const MAX_MONTHS = 120 // the API's limit: 10 years
+const MAX_SEN = 10_000_000 // the API's limit per amount: RM100,000 (backend/api/src/lib/limits.ts)
 const PRESETS = [6, 12, 24, 36, 60, 84]
 
 /** Loan length as years + months. Quick chips for the usual terms; the two steppers reach anything up to 10 years. */
