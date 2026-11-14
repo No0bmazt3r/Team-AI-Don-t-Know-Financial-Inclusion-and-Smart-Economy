@@ -59,6 +59,8 @@ async function withFallback<R>(route: Route, run: (client: OpenAI, step: Step) =
 function failed(route: Route, err: unknown): ApiError {
   if (err instanceof ApiError) return err
   log('error', 'llm failed', { route, err: err instanceof Error ? err.message : String(err) })
+  // A chat has nothing to "enter manually", so Odah gets its own words
+  if (route === 'tanya') return new ApiError(502, 'llm_failed', 'Odah tak dapat jawab sekarang. Cuba lagi sekejap lagi.', "Odah couldn't answer just now. Try again in a minute.")
   return new ApiError(502, 'llm_failed', 'AI tidak dapat dihubungi. Cuba lagi atau isi secara manual.', "The AI couldn't be reached. Try again or enter it manually.")
 }
 

@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { Calculator, FileText } from 'lucide-react'
+import { Calculator, FileText, Minus, Plus } from 'lucide-react'
 import { useState } from 'react'
+import { Chip } from '../onboarding'
 import { ResultPlaceholder } from '../../components/EmptyState'
 import { InfoTip } from '../../components/InfoTip'
 import { MoneyField } from '../../components/MoneyField'
@@ -41,16 +42,11 @@ function SemakLayak() {
           </label>
           <MoneyField label={t('layak.price')} valueSen={price} onChange={setPrice} required />
           <MoneyField label={t('layak.deposit')} valueSen={deposit} onChange={setDeposit} />
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-sm font-semibold">
-              {t('layak.months')}
-              <input type="number" inputMode="numeric" min={1} max={120} value={months} onChange={(e) => setMonths(Math.min(120, Math.max(1, Number(e.target.value) || 1)))} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal tabular-nums" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm font-semibold">
-              <span className="flex items-center gap-1">{t('layak.rate')}<InfoTip term={t('layak.rate')} text={t('term.flatRate')} /></span>
-              <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ''))} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal tabular-nums" />
-            </label>
-          </div>
+          <TermField months={months} onChange={setMonths} />
+          <label className="flex flex-col gap-1 text-sm font-semibold">
+            <span className="flex items-center gap-1">{t('layak.rate')}<InfoTip term={t('layak.rate')} text={t('term.flatRate')} /></span>
+            <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ''))} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal tabular-nums" />
+          </label>
           <button type="submit" className="btn btn-primary" disabled={!price || check.isPending}>{t('layak.check')}</button>
           {check.isError && <p role="alert" className="text-sm font-semibold text-[var(--risky)]">{errorText(check.error, lang, t('common.tryAgain'))}</p>}
         </form>
@@ -76,5 +72,67 @@ function SemakLayak() {
       </div>
       <p className="text-[0.8125rem] text-muted">{t('common.disclaimer')}</p>
     </>
+  )
+}
+
+const MAX_MONTHS = 120 // the API's limit: 10 years
+const PRESETS = [6, 12, 24, 36, 60, 84]
+
+/** Loan length as years + months. Quick chips for the usual terms; the two steppers reach anything up to 10 years. */
+function TermField({ months, onChange }: { months: number; onChange: (m: number) => void }) {
+  const { t } = useI18n()
+  const years = Math.floor(months / 12)
+  const rest = months % 12
+  const set = (y: number, m: number) => onChange(Math.min(MAX_MONTHS, Math.max(1, y * 12 + m)))
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-1 text-sm font-semibold">{t('layak.term')}</legend>
+      <div className="flex flex-wrap gap-2">
+        {PRESETS.map((p) => <Chip key={p} on={months === p} onClick={() => onChange(p)}>{termLabel(t, p, true)}</Chip>)}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Stepper label={t('layak.years')} value={years} min={0} max={10} onChange={(y) => set(y, y === 10 ? 0 : rest)} />
+        <Stepper label={t('layak.monthsPart')} value={rest} min={0} max={11} disabled={years === 10} onChange={(m) => set(years, m)} />
+      </div>
+      <p className="text-[0.8125rem] text-muted" aria-live="polite">{t('layak.termTotal', { term: termLabel(t, months, false), months })}</p>
+    </fieldset>
+  )
+}
+
+function termLabel(t: ReturnType<typeof useI18n>['t'], months: number, short: boolean) {
+  const y = Math.floor(months / 12)
+  const m = months % 12
+  const parts = [y ? t(short ? 'layak.yShort' : 'layak.yLong', { n: y }) : '', m ? t(short ? 'layak.mShort' : 'layak.mLong', { n: m }) : ''].filter(Boolean)
+  return parts.join(' ')
+}
+
+/** − [n] + with a typed box that only commits on blur or Enter, so clearing it to type "84" doesn't snap to 1. */
+function Stepper({ label, value, min, max, onChange, disabled = false }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void; disabled?: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    if (draft === null) return
+    const n = Number(draft)
+    if (draft !== '' && Number.isFinite(n)) onChange(Math.min(max, Math.max(min, Math.round(n))))
+    setDraft(null)
+  }
+  const btn = 'pressable grid size-12 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-line-strong bg-surface hover:bg-surface-2 disabled:opacity-40'
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[0.8125rem] font-semibold text-muted">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <button type="button" className={btn} aria-label={`${label} −1`} disabled={disabled || value <= min} onClick={() => onChange(value - 1)}><Minus size={18} aria-hidden /></button>
+        <input
+          inputMode="numeric"
+          aria-label={label}
+          disabled={disabled}
+          value={draft ?? String(value)}
+          onChange={(e) => setDraft(e.target.value.replace(/\D/g, '').slice(0, 3))}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
+          className="h-12 w-full min-w-0 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 text-center text-base font-semibold tabular-nums disabled:opacity-40"
+        />
+        <button type="button" className={btn} aria-label={`${label} +1`} disabled={disabled || value >= max} onClick={() => onChange(value + 1)}><Plus size={18} aria-hidden /></button>
+      </div>
+    </div>
   )
 }

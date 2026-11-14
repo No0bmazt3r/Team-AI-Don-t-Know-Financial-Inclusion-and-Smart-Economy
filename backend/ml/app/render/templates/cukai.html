@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ L.tax_title.format(year=d.year) }} · Coinvoy</title>
+<style>
+  /* Light only, for officers (design-system §7, officer view). */
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #F6F7F2; color: #1D1E1D; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px; background: #fff; }
+  header { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #1D1E1D; padding-bottom: 12px; }
+  header img { width: 44px; height: 44px; }
+  h1 { font-size: 22px; margin: 0; }
+  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 16px 0; }
+  .meta div { background: #EEF0E8; border-radius: 8px; padding: 8px 10px; }
+  .meta b { display: block; font-size: 12px; color: #5B5E57; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #D9DCD3; }
+  th { font-size: 12px; color: #5B5E57; }
+  td.n, th.n { text-align: right; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroll table { min-width: 520px; }
+  .src { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #FDF0DC; color: #9A4A06; white-space: nowrap; }
+  .src.checked { background: #E4F4E8; color: #136C33; }
+  .src.verified { background: #E4F4E8; color: #136C33; }
+  h2 { font-size: 16px; margin: 24px 0 8px; }
+  .legend, .foot { font-size: 12px; color: #5B5E57; }
+  .ok { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; background: #E4F4E8; color: #0F4F25; font-weight: 600; }
+  .ok svg { flex: none; margin-top: 2px; }
+  .code { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+  tr.total td { font-weight: 700; border-bottom: 0; }
+  .notcredit { margin-top: 20px; padding: 10px 12px; border: 2px solid #1D1E1D; border-radius: 8px; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    {% if logo %}<img src="{{ logo }}" alt="Coinvoy">{% endif %}
+    <div>
+      <h1>{{ L.tax_title.format(year=d.year) }}</h1>
+      <div class="legend">Coinvoy · {{ L.tax_for }} · {{ L.source }}: <span class="src {{ d.source }}">{{ L[d.source] }}</span></div>
+    </div>
+  </header>
+
+  {% if verified %}<p class="ok" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>{{ L.verified_banner.format(date=generated) }}</span></p>{% endif %}
+
+  <div class="meta">
+    <div><b>{{ L.name }}</b>{{ name }}</div>
+    <div><b>{{ L.year }}</b>{{ d.year }}</div>
+    <div><b>{{ L.weeks }}</b>{{ L.recorded.format(n=d.weeks, of=d.weeks_possible) }}</div>
+    <div><b>{{ L.generated }}</b>{{ generated }}</div>
+    {% if code %}<div><b>{{ L.code }}</b><span class="code">{{ code }}</span></div>{% endif %}
+    {% if expires %}<div><b>{{ L.valid_until }}</b>{{ expires }}</div>{% endif %}
+  </div>
+
+  <h2>{{ L.income }}</h2>
+  <table>
+    <tr><td>{{ L.fares }}</td><td class="n">{{ rm(d.totals.fares_sen) }}</td></tr>
+    <tr><td>{{ L.extras }}</td><td class="n">{{ rm(d.totals.extras_sen) }}</td></tr>
+    <tr><td>{{ L.receipts }}</td><td class="n">{{ rm(d.totals.receipts_sen) }}</td></tr>
+    <tr><td>{{ L.fees }}</td><td class="n">−{{ rm(d.totals.fees_sen) }}</td></tr>
+    <tr class="total"><td>{{ L.net_platform }}</td><td class="n">{{ rm(d.totals.net_sen) }}</td></tr>
+  </table>
+
+  <h2>{{ L.month }}</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>{{ L.month }}</th><th class="n">{{ L.weeks }}</th><th class="n">{{ L.receipts }}</th><th class="n">{{ L.fees }}</th><th class="n">{{ L.net }}</th><th class="n">{{ L.source }}</th></tr></thead>
+    <tbody>
+    {% for m in d.monthly %}
+      <tr><td>{{ M[m.month - 1] }}</td><td class="n">{{ m.weeks }}</td><td class="n">{{ rm(m.fares_sen + m.extras_sen) }}</td><td class="n">{{ rm(m.fees_sen) }}</td><td class="n">{{ rm(m.net_sen) }}</td><td class="n"><span class="src {{ m.source }}">{{ L[m.source] }}</span></td></tr>
+    {% endfor %}
+      <tr class="total"><td>{{ L.total }}</td><td class="n">{{ d.weeks }}</td><td class="n">{{ rm(d.totals.receipts_sen) }}</td><td class="n">{{ rm(d.totals.fees_sen) }}</td><td class="n">{{ rm(d.totals.net_sen) }}</td><td></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>{{ L.costs }}</h2>
+  {% set c = d.costs %}
+  {% if c.business["items"] or c.asset["items"] or c.personal["items"] %}
+  <table>
+    <thead><tr><th>{{ L.business }}</th><th class="n"></th></tr></thead>
+    {% for i in c.business["items"] %}<tr><td>{{ C[i.category] }}</td><td class="n">{{ rm(i.amount_sen) }}</td></tr>{% endfor %}
+    <tr class="total"><td>{{ L.total }}</td><td class="n">{{ rm(c.business.total_sen) }}</td></tr>
+  </table>
+  {% if c.business["items"] | selectattr("category", "equalto", "telefon") | list %}<p class="legend">{{ L.phone_note }}</p>{% endif %}
+  {% if c.asset["items"] %}<table><tr><td>{{ L.asset }}</td><td class="n">{{ rm(c.asset.total_sen) }}</td></tr></table><p class="legend">{{ L.asset_note }}</p>{% endif %}
+  {% if c.personal["items"] %}<table><tr><td>{{ L.personal }}</td><td class="n">{{ rm(c.personal.total_sen) }}</td></tr></table>{% endif %}
+  <p class="legend">{{ L.costs_recorded.format(n=c.recorded_weeks) }}</p>
+  {% else %}<p class="legend">{{ L.no_costs }}</p>{% endif %}
+
+  <table><tr class="total"><td>{{ L.after_costs }}</td><td class="n">{{ rm(d.after_business_costs_sen) }}</td></tr></table>
+  <p class="legend">{{ L.after_costs_note }}</p>
+
+  <h2>{{ L.relief }}</h2>
+  <table>
+    <tr><td>{{ L.isaraan }}</td><td class="n">{{ rm(d.contributions.isaraan_sen) }} <span class="legend">(+{{ rm(d.contributions.isaraan_match_sen) }} {{ L.isaraan_match }})</span></td></tr>
+    <tr><td>{{ L.perkeso }}</td><td class="n">{% if d.contributions.perkeso_deducted %}{{ L.perkeso_deducted }}{% else %}{{ rm(d.contributions.perkeso_sen) }} <span class="legend">({{ L.perkeso_est }})</span>{% endif %}</td></tr>
+  </table>
+
+  <p class="legend">{{ L.legend }}</p>
+  <p class="notcredit">{{ L.not_tax }}</p>
+  <p class="foot">{{ L.tax_disclaimer }}</p>
+</main>
+</body>
+</html>

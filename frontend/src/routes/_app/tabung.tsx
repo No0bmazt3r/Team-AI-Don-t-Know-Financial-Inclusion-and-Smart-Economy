@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
-  Bike, Briefcase, ChevronRight, Gift, GraduationCap, HeartPulse, Heart, House, Landmark, Loader2, Moon, Palmtree, PiggyBank, Plane, Plus, Shield,
+  Bike, Briefcase, Calculator, ChevronRight, Gift, GraduationCap, HeartPulse, Heart, House, Landmark, Loader2, Moon, Palmtree, PiggyBank, Plane, Plus, Shield,
   Siren, Smartphone, Sparkles, Users, type LucideIcon,
 } from 'lucide-react'
 import { createElement, useEffect, useState } from 'react'
@@ -277,10 +277,10 @@ function SuggestionsPanel({ onPick }: { onPick: (s: PotSuggestion | true) => voi
                 <PotIcon kind={x.kind} className="mt-0.5 shrink-0 text-muted" />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="flex items-center gap-1.5 font-semibold">{t(`pot.${x.kind}` as Key)}{s.data.source === 'ai' && <AiBadge />}</span>
+                    <span className="flex items-center gap-1.5 font-semibold">{t(`pot.${x.kind}` as Key)}</span>
                     <span className="text-[0.8125rem] font-semibold tabular-nums">{t('tabung.perWeek', { amount: rm(x.weeklySen) })}</span>
                   </span>
-                  <span className="block text-sm text-muted">{x.reason}</span>
+                  <Reason text={x.reason} ai={s.data.source === 'ai'} />
                 </span>
               </button>
             </li>
@@ -293,18 +293,35 @@ function SuggestionsPanel({ onPick }: { onPick: (s: PotSuggestion | true) => voi
           </li>
         </ul>
       )}
-      {s.data?.source === 'ai' && <p className="flex items-start gap-1.5 px-1 text-[0.8125rem] text-muted"><Sparkles size={14} aria-hidden className="mt-0.5 shrink-0" />{t('tabung.byAi')}</p>}
+      {s.data && <SourceNote ai={s.data.source === 'ai'} className="px-1" />}
     </section>
   )
 }
 
-/** Marks a suggestion the AI picked and worded (the rules still set every amount). */
-function AiBadge() {
+/** The reason sentence. When the AI wrote it, it gets the AI tint and a label, so a rider can tell it apart from the
+ * amounts next to it, which always come from the rules. */
+function Reason({ text, ai }: { text: string; ai: boolean }) {
+  const { t } = useI18n()
+  if (!ai) return <span className="block text-sm text-muted">{text}</span>
   return (
-    <span className="inline-flex items-center gap-0.5 rounded-full bg-[linear-gradient(90deg,#8b5cf6,#38bdf8)] px-1.5 py-px text-[0.6875rem] font-bold text-white">
-      <Sparkles size={10} aria-hidden />
-      AI
+    <span className="mt-1 block rounded-[var(--radius-sm)] border-l-2 border-[#8b5cf6] bg-[color-mix(in_srgb,#8b5cf6_8%,transparent)] px-2 py-1 text-sm">
+      <span className="mr-1 inline-flex items-center gap-0.5 rounded-full bg-[linear-gradient(90deg,#8b5cf6,#38bdf8)] px-1.5 py-px align-[1px] text-[0.6875rem] font-bold text-white">
+        <Sparkles size={10} aria-hidden />
+        {t('ai.wrote')}
+      </span>
+      {text}
     </span>
+  )
+}
+
+/** Always says where the suggestions came from, so a missing AI label is never a mystery. */
+function SourceNote({ ai, className = '' }: { ai: boolean; className?: string }) {
+  const { t } = useI18n()
+  return (
+    <p className={`flex items-start gap-1.5 text-[0.8125rem] text-muted ${className}`}>
+      {ai ? <Sparkles size={14} aria-hidden className="mt-0.5 shrink-0 text-[#7c3aed]" /> : <Calculator size={14} aria-hidden className="mt-0.5 shrink-0" />}
+      {t(ai ? 'tabung.byAi' : 'tabung.byRules')}
+    </p>
   )
 }
 
@@ -335,10 +352,10 @@ function AddPot({ onDone, initial }: { onDone: () => void; initial?: PotSuggesti
                     <Icon size={20} aria-hidden className="mt-0.5 shrink-0 text-muted" />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="flex items-center gap-1.5 font-semibold">{t(`pot.${x.kind}` as Key)}{s.data.source === 'ai' && <AiBadge />}</span>
+                        <span className="flex items-center gap-1.5 font-semibold">{t(`pot.${x.kind}` as Key)}</span>
                         <span className="text-[0.8125rem] font-semibold tabular-nums">{t('tabung.perWeek', { amount: rm(x.weeklySen) })}</span>
                       </span>
-                      <span className="block text-sm text-muted">{x.reason}</span>
+                      <Reason text={x.reason} ai={s.data.source === 'ai'} />
                     </span>
                   </button>
                 </li>
@@ -356,7 +373,7 @@ function AddPot({ onDone, initial }: { onDone: () => void; initial?: PotSuggesti
             </li>
           </ul>
           </div>
-          {s.data.source === 'ai' && <p className="flex items-start gap-1.5 text-[0.8125rem] text-muted"><Sparkles size={14} aria-hidden className="mt-0.5 shrink-0" />{t('tabung.byAi')}</p>}
+          <SourceNote ai={s.data.source === 'ai'} />
         </>
       )}
     </div>

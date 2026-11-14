@@ -21,11 +21,17 @@
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #D9DCD3; }
   th { font-size: 12px; color: #5B5E57; }
   td.n, th.n { text-align: right; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroll table { min-width: 520px; }
   .src { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #FDF0DC; color: #9A4A06; white-space: nowrap; }
   .src.checked { background: #E4F4E8; color: #136C33; }
   .src.verified { background: #E4F4E8; color: #136C33; }
   h2 { font-size: 16px; margin: 24px 0 8px; }
   .legend, .foot { font-size: 12px; color: #5B5E57; }
+  .ok { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; background: #E4F4E8; color: #0F4F25; font-weight: 600; }
+  .ok svg { flex: none; margin-top: 2px; }
+  .code { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+  tr.total td { font-weight: 700; border-bottom: 0; }
   .notcredit { margin-top: 20px; padding: 10px 12px; border: 2px solid #1D1E1D; border-radius: 8px; font-weight: 700; }
 </style>
 </head>
@@ -35,20 +41,28 @@
     {% if logo %}<img src="{{ logo }}" alt="Coinvoy">{% endif %}
     <div>
       <h1>{{ L.title }}</h1>
-      <div class="legend">Coinvoy · {{ L.source }}: <span class="src {{ d.source }}">{{ L[d.source] }}</span></div>
+      <div class="legend">Coinvoy · {{ L.loan_for }} · {{ L.source }}: <span class="src {{ d.source }}">{{ L[d.source] }}</span></div>
     </div>
   </header>
+
+  {% if verified %}<p class="ok" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>{{ L.verified_banner.format(date=generated) }}</span></p>{% endif %}
 
   <div class="meta">
     <div><b>{{ L.name }}</b>{{ name }}</div>
     <div><b>{{ L.period }}</b>{{ d["from"] }} – {{ d["to"] }}</div>
     <div><b>{{ L.weeks }}</b>{{ d.weeks }} {{ L.weeks_logged }}</div>
     <div><b>{{ L.generated }}</b>{{ generated }}</div>
-    {% if expires %}<div><b>{{ L.expires }}</b>{{ expires }}</div>{% endif %}
+    {% if code %}<div><b>{{ L.code }}</b><span class="code">{{ code }}</span></div>{% endif %}
+    {% if expires %}<div><b>{{ L.valid_until if verified else L.expires }}</b>{{ expires }}</div>{% endif %}
   </div>
 
   <h2>{{ L.summary }}</h2>
   <table>
+    {% if d.totals %}
+    <tr><td>{{ L.gross }}</td><td class="n">{{ rm(d.totals.gross_sen) }}</td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
+    <tr><td>{{ L.fees }}</td><td class="n">−{{ rm(d.totals.fees_sen) }}</td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
+    <tr><td>{{ L.net }}</td><td class="n"><b>{{ rm(d.totals.net_sen) }}</b></td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
+    {% endif %}
     <tr><td>{{ L.avg }}</td><td class="n"><b>{{ rm(d.avg_sen) }}</b></td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
     <tr><td>{{ L.min }}</td><td class="n">{{ rm(d.min_sen) }}</td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
     <tr><td>{{ L.max }}</td><td class="n">{{ rm(d.max_sen) }}</td><td class="n"><span class="src {{ d.source }}">{{ L[d.source] }}</span></td></tr>
@@ -57,14 +71,22 @@
   </table>
 
   <h2>{{ L.month }}</h2>
-  <table>
-    <thead><tr><th>{{ L.month }}</th><th class="n">{{ L.weeks }}</th><th class="n">{{ L.net }}</th><th class="n">{{ L.avg }}</th><th class="n">{{ L.hours }}</th><th class="n">{{ L.source }}</th></tr></thead>
+  <div class="scroll"><table>
+    <thead><tr><th>{{ L.month }}</th><th class="n">{{ L.weeks }}</th>{% if d.totals %}<th class="n">{{ L.gross }}</th><th class="n">{{ L.fees }}</th>{% endif %}<th class="n">{{ L.net }}</th><th class="n">{{ L.avg }}</th><th class="n">{{ L.hours }}</th><th class="n">{{ L.source }}</th></tr></thead>
     <tbody>
     {% for m in d.monthly %}
-      <tr><td>{{ M[m.month - 1] }} {{ m.year }}</td><td class="n">{{ m.weeks }}</td><td class="n">{{ rm(m.net_sen) }}</td><td class="n">{{ rm(m.avg_sen) }}</td><td class="n">{{ m.hours }}</td><td class="n"><span class="src {{ m.source }}">{{ L[m.source] }}</span></td></tr>
+      <tr><td>{{ M[m.month - 1] }} {{ m.year }}</td><td class="n">{{ m.weeks }}</td>{% if d.totals %}<td class="n">{{ rm(m.gross_sen) }}</td><td class="n">{{ rm(m.fees_sen) }}</td>{% endif %}<td class="n">{{ rm(m.net_sen) }}</td><td class="n">{{ rm(m.avg_sen) }}</td><td class="n">{{ m.hours }}</td><td class="n"><span class="src {{ m.source }}">{{ L[m.source] }}</span></td></tr>
     {% endfor %}
     </tbody>
+  </table></div>
+
+  {% if d.contributions %}
+  <h2>{{ L.contrib }}</h2>
+  <table>
+    <tr><td>{{ L.isaraan }}</td><td class="n">{{ rm(d.contributions.isaraan_sen) }} <span class="legend">(+{{ rm(d.contributions.isaraan_match_sen) }} {{ L.isaraan_match }})</span></td></tr>
+    <tr><td>{{ L.perkeso }}</td><td class="n">{% if d.contributions.perkeso_deducted %}{{ L.perkeso_deducted }}{% else %}{{ rm(d.contributions.perkeso_sen) }} <span class="legend">({{ L.perkeso_est }})</span>{% endif %}</td></tr>
   </table>
+  {% endif %}
 
   <p class="legend">{{ L.legend }}</p>
   <p class="notcredit">{{ L.not_credit }}</p>

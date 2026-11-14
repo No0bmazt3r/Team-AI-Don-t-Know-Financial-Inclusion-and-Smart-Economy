@@ -233,11 +233,17 @@ export const tanyaMessages = pgTable(
   (t) => [index('tanya_user_time').on(t.userId, t.createdAt)],
 )
 
-export const officerLinks = pgTable('officer_links', {
+// A verify code printed on a Loan pack or Tax year PDF. The officer types it (or scans the QR) to see the figures as
+// they were when the PDF was made, so an edited PDF shows up. Stored hashed, expiring and revocable.
+export const docCodes = pgTable('doc_codes', {
   id: id(),
   userId: owner(),
-  tokenHash: text('token_hash').notNull().unique(),
-  months: integer().notNull(),
+  codeHash: text('code_hash').notNull().unique(),
+  hint: text().notNull(), // the last 4 characters, so the rider can tell codes apart
+  kind: text().notNull(), // loan | tax
+  label: text().notNull(), // "3" / "6" / "12" months, or the tax year
+  lang: text().notNull().default('ms'),
+  snapshot: jsonb().$type<Record<string, unknown>>().notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   openedCount: integer('opened_count').notNull().default(0),

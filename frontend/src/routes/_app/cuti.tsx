@@ -7,7 +7,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { RiskBadge } from '../../components/RiskBadge'
 import { ScreenHeader } from '../../components/ScreenHeader'
 import { Skeleton } from '../../components/Skeleton'
-import { Select } from '../../components/Select'
+import { WeekPicker } from '../../components/WeekPicker'
 import { useI18n } from '../../i18n/t'
 import { api, errorText, type LeavePreview, leaveQuery, prefetch } from '../../lib/api'
 import { addDays, thisWeekStart, weekLabel } from '../../lib/dates'
@@ -55,7 +55,7 @@ function Cuti() {
           {t('cuti.label')}
           <input value={label} onChange={(e) => { setLabel(e.target.value); setPreview(null) }} placeholder={t('cuti.labelPlaceholder')} maxLength={40} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal" />
         </label>
-        <Select label={t('cuti.start')} value={start} onChange={(v) => { setStart(v); setPreview(null) }} options={weeks.map((w) => ({ value: w, label: weekLabel(w, lang) }))} />
+        <WeekPicker label={t('cuti.start')} value={start} span={length} min={weeks[0]!} max={weeks.at(-1)!} onChange={(v) => { setStart(v); setPreview(null) }} />
         <div className="flex flex-col gap-1">
           <span className="text-sm font-semibold">{t('cuti.length')}</span>
           <div className="flex flex-wrap gap-2" role="group" aria-label={t('cuti.length')}>

@@ -11,8 +11,8 @@ export function log(level: Level, msg: string, fields: Record<string, unknown> =
 
 export const errorFields = (err: unknown) => (err instanceof Error ? { err: err.message, stack: err.stack } : { err: String(err) })
 
-// The officer link's token is a credential, so it never reaches the logs; query strings are dropped for the same reason.
-const safePath = (url: string) => url.split('?')[0]!.replace(/^\/o\/[^/]+/, '/o/:token')
+// A verify code is a credential, so it never reaches the logs; query strings are dropped for the same reason.
+const safePath = (url: string) => url.split('?')[0]!.replace(/^\/o\/v\/[^/]+/, '/o/v/:code')
 
 /** method, path, status, ms and the rider's id: no bodies, no emails, no query strings. */
 export const requestLog: RequestHandler = (req, res, next) => {

@@ -139,6 +139,12 @@ body {
 /* Screens fade up when they open, or slide in from the side on a tab change. Sheets are left out on purpose,
    otherwise they would replay the page animation every time they open. */
 @keyframes page-in { from { opacity: 0; transform: translate(var(--page-dx, 0px), var(--page-dy, 8px)); } to { opacity: 1; transform: none; } }
+/* Segmented controls and tabs: one pill slides under the options (transform only, so it stays on the compositor).
+   --i is the chosen option and --n how many there are; the pill is 1/n of the track, moved by its own width. */
+.seg-pill { position: absolute; inset-block: 4px; left: 4px; width: calc((100% - 8px) / var(--n)); transform: translateX(calc(var(--i) * 100%)); transition: transform 280ms var(--ease-out); }
+@keyframes panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.panel-in { animation: panel-in 220ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .seg-pill { transition: none; } .panel-in { animation: none; } }
 @keyframes nav-pop { 0% { transform: scale(0.8) translateY(2px); } 60% { transform: scale(1.12) translateY(-1px); } 100% { transform: none; } }
 .page-in > :not(dialog) { animation: page-in 240ms var(--ease-out) both; }
 .page-in > :nth-child(2) { animation-delay: 40ms; }

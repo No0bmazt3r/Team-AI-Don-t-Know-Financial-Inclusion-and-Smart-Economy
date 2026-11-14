@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { BorderBeam } from 'border-beam'
-import { ArrowUp, ArrowUpRight, BadgeAlert, Calculator, ChevronRight, Lightbulb, MessageSquareWarning, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Calculator, ChevronRight, Lightbulb, ShieldAlert, Sparkles, Trash2 } from 'lucide-react'
 import { ThinkingOrb } from 'thinking-orbs'
 import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Columns } from '../../components/Columns'
@@ -94,11 +94,8 @@ function Tanya() {
               <Tooltip side="bottom" text={t('layak.title')}><Link to="/layak" aria-label={t('layak.title')} className="pressable grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text">
                 <Calculator size={20} aria-hidden />
               </Link></Tooltip>
-              <Tooltip side="bottom" text={t('lender.title')}><Link to="/pemberi" aria-label={t('lender.title')} className="pressable grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text">
-                <BadgeAlert size={20} aria-hidden />
-              </Link></Tooltip>
-              <Tooltip side="bottom" text={t('scam.title')}><Link to="/semak" aria-label={t('scam.title')} className="pressable grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text">
-                <MessageSquareWarning size={20} aria-hidden />
+              <Tooltip side="bottom" text={t('check.title')}><Link to="/semak" aria-label={t('check.title')} className="pressable grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text">
+                <ShieldAlert size={20} aria-hidden />
               </Link></Tooltip>
             </>
             )}
@@ -114,8 +111,7 @@ function Tanya() {
           <h2 id="tools" className="px-1 text-sm font-semibold text-muted">{t('tanya.tools')}</h2>
           <div className="divide-y divide-line overflow-hidden rounded-[var(--radius-md)] border border-line bg-surface">
             <ToolRow to="/layak" icon={<Calculator size={20} aria-hidden />} title={t('layak.title')} sub={t('layak.entry')} />
-            <ToolRow to="/pemberi" icon={<BadgeAlert size={20} aria-hidden />} title={t('lender.title')} sub={t('lender.entry')} />
-            <ToolRow to="/semak" icon={<MessageSquareWarning size={20} aria-hidden />} title={t('scam.title')} sub={t('scam.entry')} />
+            <ToolRow to="/semak" icon={<ShieldAlert size={20} aria-hidden />} title={t('check.title')} sub={t('check.entry')} />
           </div>
         </section>
 
@@ -256,7 +252,7 @@ function useFitToScreen() {
 
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 
-function ToolRow({ to, icon, title, sub }: { to: '/layak' | '/pemberi' | '/semak'; icon: ReactNode; title: string; sub: string }) {
+function ToolRow({ to, icon, title, sub }: { to: '/layak' | '/semak'; icon: ReactNode; title: string; sub: string }) {
   return (
     <Link to={to} className="pressable flex min-h-16 items-center gap-3 px-4 py-3 hover:bg-surface-2">
       <span className="shrink-0 text-muted">{icon}</span>

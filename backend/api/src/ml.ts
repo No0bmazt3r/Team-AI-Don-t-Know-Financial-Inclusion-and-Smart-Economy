@@ -81,4 +81,4 @@ export const ml = {
   penyataPdf: async (body: PenyataBody) => Buffer.from(await (await call('/penyata', { ...body, format: 'pdf' })).arrayBuffer()),
 }
 
-export type PenyataBody = { data: unknown; lang: 'ms' | 'en'; name: string; generated: string; expires?: string | null }
+export type PenyataBody = { data: unknown; lang: 'ms' | 'en'; name: string; generated: string; expires?: string | null; kind?: 'loan' | 'tax'; code?: string; verifyUrl?: string; verified?: boolean }

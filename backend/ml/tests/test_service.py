@@ -76,3 +76,27 @@ def test_penyata_renders_html_and_pdf(ml):
     assert "Penyata Pendapatan" in html and "RM630.00" in html and "Faiz" in html and "Rahman" not in html
     pdf = ml.post("/penyata", json=body)
     assert pdf.headers["content-type"] == "application/pdf" and pdf.content[:5] == b"%PDF-"
+
+
+def test_tax_summary_and_verify_view_render(ml):
+    data = {"year": 2026, "from": "2026-01-01", "to": "2026-12-31", "weeks": 12, "weeksPossible": 46,
+            "platforms": ["grab"], "source": "self",
+            "monthly": [{"month": 9, "weeks": 4, "faresSen": 240000, "extrasSen": 20000, "feesSen": 30000,
+                         "netSen": 230000, "source": "self"}],
+            "totals": {"faresSen": 240000, "extrasSen": 20000, "receiptsSen": 260000, "feesSen": 30000,
+                       "netSen": 230000},
+            "costs": {"business": {"items": [{"category": "minyak", "amountSen": 40000},
+                                             {"category": "telefon", "amountSen": 5000}], "totalSen": 45000},
+                      "asset": {"items": [{"category": "ansuran", "amountSen": 30000}], "totalSen": 30000},
+                      "personal": {"items": [], "totalSen": 0}, "recordedWeeks": 3},
+            "afterBusinessCostsSen": 185000,
+            "contributions": {"isaraanSen": 10000, "isaraanMatchSen": 2000, "perkesoDeducted": False,
+                              "perkesoSen": 3250}}
+    body = {"data": data, "name": "Faiz Rahman", "generated": "2026-11-14", "lang": "en", "kind": "tax",
+            "code": "CV-ABCDE-FGHJK"}
+    html = ml.post("/penyata", json={**body, "format": "html", "verified": True}).text
+    assert "Yearly Income Summary 2026" in html and "12 of 46 weeks recorded" in html
+    assert "RM1,850.00" in html and "Fuel" in html and "capital allowance" in html and "work share" in html
+    assert "Valid code" in html and "CV-ABCDE-FGHJK" in html and "not a tax return" in html
+    pdf = ml.post("/penyata", json={**body, "verifyUrl": "https://coinvoy.example/o/v/ABCDEFGHJK"})
+    assert pdf.content[:5] == b"%PDF-"

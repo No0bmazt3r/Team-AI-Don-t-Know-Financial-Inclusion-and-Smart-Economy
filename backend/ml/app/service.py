@@ -225,14 +225,20 @@ class PenyataIn(Camel):
     generated: date
     expires: str | None = None
     format: Literal["html", "pdf"] = "pdf"
+    kind: Literal["loan", "tax"] = "loan"
+    code: str | None = None
+    verify_url: str | None = None
+    verified: bool = False
 
 
 @app.post("/penyata")
 def penyata_route(body: PenyataIn) -> Response:
     data = snake(body.data)
     if body.format == "html":
-        return HTMLResponse(penyata.render_html(body.name, data, body.lang, body.generated, body.expires))
-    return Response(penyata.render_pdf(body.name, data, body.lang, body.generated), media_type="application/pdf")
+        return HTMLResponse(penyata.render_html(body.name, data, body.lang, body.generated, body.expires, body.kind,
+                                                body.code, body.verified))
+    return Response(penyata.render_pdf(body.name, data, body.lang, body.generated, body.kind, body.code,
+                                       body.verify_url), media_type="application/pdf")
 
 
 @app.post("/statement/text")

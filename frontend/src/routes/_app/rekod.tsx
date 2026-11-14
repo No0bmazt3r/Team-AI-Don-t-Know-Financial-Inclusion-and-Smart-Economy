@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Copy, Download, FileText, Link2, Lock, Mic, Trash2 } from 'lucide-react'
+import { Mic, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { BarChart, HBars, Legend } from '../../components/Chart'
 import { InfoTip } from '../../components/InfoTip'
@@ -9,9 +9,10 @@ import { ScreenHeader } from '../../components/ScreenHeader'
 import { Sheet } from '../../components/Sheet'
 import { Skeleton } from '../../components/Skeleton'
 import { Select } from '../../components/Select'
+import { Documents } from '../../components/Documents'
 import { StatementCheck } from '../../components/StatementCheck'
 import { useI18n, type Key } from '../../i18n/t'
-import { api, errorText, expensesQuery, linksQuery, penyataQuery, prefetch, MARK, type Platform, type Week, weeksQuery } from '../../lib/api'
+import { api, errorText, expensesQuery, penyataQuery, prefetch, MARK, type Platform, type Week, weeksQuery } from '../../lib/api'
 import { shortDate, thisWeekStart, weekLabel } from '../../lib/dates'
 import { axisRM, formatRM } from '../../lib/money'
 import { Tooltip } from '../../components/Tooltip'
@@ -30,7 +31,7 @@ type Payslip = {
 }
 const CATEGORIES = ['minyak', 'servis', 'ansuran', 'makan', 'telefon', 'parking', 'tol', 'sewa', 'keluarga', 'motor_tahunan', 'lain']
 
-// Rekod: weeks, payslips, the Penyata and officer links, and costs. Desktop: weeks in their own column.
+// Rekod: weeks, payslips, the Loan pack and Tax year PDFs, and costs. Desktop: weeks in their own column.
 function Rekod() {
   const { t, lang } = useI18n()
   const weeks = useQuery(weeksQuery)
@@ -41,7 +42,7 @@ function Rekod() {
       <div className="contents lg:grid lg:grid-cols-2 lg:items-start lg:gap-4">
         <div className="col">
           <Costs />
-          <PenyataCard />
+          <Documents />
           <StatementCheck />
         </div>
         <div className="col lg:sticky lg:top-6">
@@ -151,58 +152,6 @@ function PayslipView({ week, onDone }: { week: Week; onDone: () => void }) {
         <Trash2 size={18} aria-hidden /> {t('slip.delete')}
       </button>
     </div>
-  )
-}
-
-function PenyataCard() {
-  const { t, lang } = useI18n()
-  const p = useQuery(penyataQuery)
-  const links = useQuery({ ...linksQuery, enabled: p.data?.unlocked === true })
-  const queryClient = useQueryClient()
-  const [made, setMade] = useState<string | null>(null)
-  const create = useMutation({
-    mutationFn: () => api<{ path: string }>('/api/officer-links', { body: { months: 3 } }),
-    onSuccess: (r) => {
-      setMade(`${location.origin}${r.path}`)
-      queryClient.invalidateQueries({ queryKey: ['links'] })
-    },
-  })
-  const revoke = useMutation({ mutationFn: (id: number) => api(`/api/officer-links/${id}`, { method: 'DELETE' }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['links'] }) })
-  if (!p.data) return <Skeleton className="h-28" />
-  if (!p.data.unlocked) {
-    return (
-      <section className="flex flex-col gap-2 rounded-lg border border-dashed border-line bg-surface p-4">
-        <h2 className="flex items-center gap-2 font-semibold"><Lock size={18} aria-hidden /> {t('penyata.title')}</h2>
-        <p className="text-sm text-muted">{t('penyata.locked', { n: p.data.weeksLogged, total: p.data.unlockAt })}</p>
-        <div className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden><div className="h-full rounded-full bg-brand" style={{ width: `${(p.data.weeksLogged / p.data.unlockAt) * 100}%` }} /></div>
-      </section>
-    )
-  }
-  const s = p.data.summary!
-  return (
-    <section aria-labelledby="penyata" className="flex flex-col gap-3 rounded-lg border-2 border-outline bg-surface p-4">
-      <h2 id="penyata" className="flex items-center gap-2 font-semibold"><FileText size={18} aria-hidden /> {t('penyata.title')}</h2>
-      <p className="text-sm text-muted">{t('penyata.summary', { avg: formatRM(s.avgSen, { whole: true }), weeks: s.weeks })} · {t(`source.${s.source}` as Key)}</p>
-      <div className="grid grid-cols-2 gap-2">
-        {[3, 6].map((m) => (
-          <a key={m} href={`/api/penyata.pdf?months=${m}&lang=${lang}`} className="btn btn-secondary px-2"><Download size={18} aria-hidden /> {t('penyata.months', { n: m })}</a>
-        ))}
-      </div>
-      <button type="button" className="btn btn-primary" disabled={create.isPending} onClick={() => create.mutate()}><Link2 size={18} aria-hidden /> {t('penyata.link')}</button>
-      {made && (
-        <div className="flex items-center gap-2 rounded-[var(--radius-sm)] bg-surface-2 p-3">
-          <code className="min-w-0 flex-1 truncate text-sm">{made}</code>
-          <Tooltip side="bottom" text={t('penyata.copy')}><button type="button" aria-label={t('penyata.copy')} onClick={() => navigator.clipboard?.writeText(made)} className="pressable grid size-11 place-items-center rounded-full hover:bg-surface"><Copy size={18} aria-hidden /></button></Tooltip>
-        </div>
-      )}
-      {links.data?.filter((l) => !l.revoked).map((l) => (
-        <div key={l.id} className="flex items-center gap-2 text-sm">
-          <span className="min-w-0 flex-1 text-muted">{t('penyata.linkRow', { date: l.expiresAt.slice(0, 10), n: l.openedCount })}</span>
-          <button type="button" className="btn-ghost font-semibold text-[var(--risky)]" onClick={() => revoke.mutate(l.id)}>{t('penyata.revoke')}</button>
-        </div>
-      ))}
-      <p className="text-[0.8125rem] text-muted">{t('penyata.notCredit')}</p>
-    </section>
   )
 }
 

@@ -38,7 +38,10 @@ export function extract(text: string): Found[] {
   return found
 }
 
-export const allowedValues = (...texts: string[]): Set<number> => new Set(texts.flatMap((t) => extract(t).map((f) => f.value)))
+// A number typed with odd commas ("250,00000") has two readings: the one extract() takes (250,000) and the digits
+// without commas (25,000,000). Both are allowed, so Odah can ask the rider which one they meant.
+const loose = (t: string) => [...t.matchAll(/\d+(?:,\d+)+/g)].map((m) => Number(m[0].replace(/,/g, '')))
+export const allowedValues = (...texts: string[]): Set<number> => new Set(texts.flatMap((t) => [...extract(t).map((f) => f.value), ...loose(t)]))
 
 function matches(value: number, decimals: number, allowed: Set<number>): boolean {
   const tol = 0.5 * 10 ** -decimals + 1e-9 // the reply may round to the precision it shows

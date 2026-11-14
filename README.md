@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="TRACK 5 · FINANCE" src="https://img.shields.io/badge/TRACK-5%20%C2%B7%20FINANCE-B5FC04?style=for-the-badge&labelColor=1D1E1D">
   <img alt="BAHASA BM + EN" src="https://img.shields.io/badge/BAHASA-BM%20%2B%20EN-136C33?style=for-the-badge&labelColor=1D1E1D">
-  <img alt="TESTS 188 PASSING" src="https://img.shields.io/badge/TESTS-188%20PASSING-4C1?style=for-the-badge&labelColor=1D1E1D">
+  <img alt="TESTS 194 PASSING" src="https://img.shields.io/badge/TESTS-194%20PASSING-4C1?style=for-the-badge&labelColor=1D1E1D">
   <img alt="LICENSE MIT" src="https://img.shields.io/badge/LICENSE-MIT-C4A5F5?style=for-the-badge&labelColor=1D1E1D">
 </p>
 
@@ -110,7 +110,7 @@ The problem has two parts. **Uneven income:** good weeks get spent and bad weeks
 | Benefit | What the rider gets |
 |---|---|
 | **Gaji Tetap** (steady pay) | One weekly salary that is safe in 95% of 1,000 simulated futures. Good week: "Pindah RM177 ke poket Penampan" (move RM177 into your buffer pocket); lean week: take it back out. The rider moves the money in their own bank and taps **Dah pindah** (done). The buffer counts confirmed transfers only. |
-| **Slip Gaji** (payslip) | Weekly payslips and a Penyata income statement PDF, every figure labelled *Dilapor sendiri* or *Disemak silang* (self-reported or cross-checked against a bank statement), plus a revocable read-only link for a loans officer. |
+| **Slip Gaji** (payslip) | Weekly payslips and a Penyata income statement PDF, every figure labelled *Dilapor sendiri* or *Disemak silang* (self-reported or cross-checked against a bank statement), plus a yearly Tax summary laid out for Borang B. Both PDFs carry a verify code and QR (90 days, cancellable) so a bank or LHDN officer can check they weren't edited. |
 | **Caruman** (contributions) | i-Saraan set-asides with a "government money claimed" counter; PERKESO shown as deducted at source. |
 | **Cuti Berbayar** (paid leave) | Plan Raya leave, set a little aside each week, and the week off still pays. Sick days are covered too. |
 | **Penasihat** (advisor) | **Odah Bot** (a chatbot where every number must come from the engine), **Semak Layak** (can I afford this instalment?), **Semak Pemberi Pinjaman** (a lender check against BNM's alert list), **Semak Mesej** (a scam message check), **Jurang** (an honest view when income is too low) and **Celik** lessons. |
@@ -131,7 +131,7 @@ The problem has two parts. **Uneven income:** good weeks get spent and bad weeks
 | G2 | A real buffer gets built | Transfer instructions; the buffer counts only confirmed transfers | RM confirmed into pockets; buffer in weeks of cover |
 | G3 | Riders can take paid leave | Cuti pot pays the salary in leave weeks | Leave weeks paid from the pot |
 | G4 | Riders claim what they're entitled to | i-Saraan set-asides and the match counter | i-Saraan Plus match earned (RM) |
-| G5 | Riders can prove their income | Payslips, the Penyata PDF and officer links | Statements and officer links issued |
+| G5 | Riders can prove their income | Payslips, the Loan pack and Tax year PDFs with verify codes | PDFs issued and codes checked |
 | G6 | The engine's promise holds | 95% safety target, walk-forward backtest | Buffer below zero in ≤ 5% of real weeks |
 | G7 | Usable in natural BM on a cheap phone | Bilingual PWA, ≤ 300 KB first load, a weekly ritual under a minute | Ritual time; usability tests with riders |
 
@@ -241,7 +241,7 @@ Coinvoy/
 │   ├── ml/
 │   │   ├── app/engine/       forecast, simulation, salary search, Malaysian calendar
 │   │   ├── app/nlp/          BM parser and classifier
-│   │   ├── app/render/       Penyata PDF and officer page
+│   │   ├── app/render/       Loan pack + Tax year PDFs and the verify page
 │   │   ├── scripts/          training, backtest, evaluation
 │   │   └── tests/            pytest
 │   ├── Dockerfile            the one image: API on $PORT, engine on 127.0.0.1 inside
@@ -501,9 +501,11 @@ All routes are under `/api` and return JSON. Errors look like `{ "error": { "cod
 |---|---|---|
 | GET | `/api/payslip/:week` | One week's payslip |
 | GET | `/api/penyata` · `/api/penyata.pdf` | Income statement summary and PDF |
-| GET · POST | `/api/officer-links` | List or create read-only links for a loans officer |
-| DELETE | `/api/officer-links/:id` | Revoke a link |
-| GET | `/o/:token` | The officer's read-only page (no sign-in, expires) |
+| GET | `/api/penyata.pdf?months=3\|6\|12&lang=` | Loan pack PDF with a new verify code |
+| GET | `/api/tax-years`, `/api/tax-year/:year` | Years with data; one year's Borang B summary |
+| GET | `/api/tax-year.pdf?year=&lang=` | Tax year PDF with a new verify code |
+| GET · DELETE | `/api/doc-codes`, `/api/doc-codes/:id` | Live verify codes; cancel one |
+| GET | `/o/v`, `/o/v/:code` | Public verify page: the PDF's original figures (no sign-in, 90 days) |
 | GET · POST · DELETE | `/api/push` | Payday reminder subscription |
 | POST | `/api/push/test` | Send a test reminder |
 | GET | `/api/admin/usage` | Usage counts, retention, AI cost (`ADMIN_EMAILS` only; 404 otherwise) |
@@ -556,7 +558,7 @@ All routes are under `/api` and return JSON. Errors look like `{ "error": { "cod
 
 | What | Status |
 |---|---|
-| Walk-forward backtest (`backend/ml/scripts/backtest.py`) | **Dry run on 30 synthetic riders only**: Coinvoy ran short in 0.0% of 660 replayed weeks vs 1.2% for "4-week average − 20%", at a higher median salary (RM594 vs RM511). Synthetic data follows the engine's own assumptions, so this is **not evidence**; a real-data run comes after launch. |
+| Walk-forward backtest (`backend/ml/scripts/backtest.py`) | **Dry run on 30 synthetic riders only**: holding each salary for the next 12 real weeks, the buffer went below zero for 11.1% of 360 salaries (target ≤ 5%, so it misses) vs 7.5% for "4-week average − 20%", which pays a lower median salary (RM511 vs RM594). The old one-payday check read 0.0% only because that payday's income is already known. Synthetic data follows the engine's own assumptions, so this is **not evidence**; a real-data run comes after launch. |
 | Pooled rate model | **Synthetic dry run only**; off by default (`RATE_MODEL`). |
 | Calendar data | Transcribed from the official calendars but **not yet checked line by line** (`verified: false`); season effects are team estimates. |
 | BM classifier (`backend/ml/app/nlp/artifacts/model_card.md`) | Trained on 770 **synthetic seed** phrases; no real-world accuracy figure yet. |
@@ -582,7 +584,7 @@ All routes are under `/api` and return JSON. Errors look like `{ "error": { "cod
 | Bypassing the edge | The API refuses `/api` and `/o` requests that didn't come through CloudFront (`X-Origin-Verify`); the database has no public address |
 | Officer link leakage | Random 128-bit tokens stored hashed, 7-day expiry, revocable (410), noindex |
 | Brute force | Rate limit on the auth routes; CSP, nosniff and Referrer-Policy headers |
-| Secrets in logs | Request logs carry method, path, status, time and rider ID only; officer tokens are masked |
+| Secrets in logs | Request logs carry method, path, status, time and rider ID only; verify codes are masked |
 
 </div>
 

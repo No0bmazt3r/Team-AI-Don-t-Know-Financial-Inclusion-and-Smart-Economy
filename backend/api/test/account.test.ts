@@ -9,13 +9,14 @@ const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice
 
 test('export has everything about the rider and no secrets', async () => {
   const a = await rider()
-  await a.post('/api/officer-links').send({ months: 3 })
+  await a.get('/api/penyata.pdf') // makes a verify code
   const r = await a.get('/api/me/export')
   expect(r.headers['content-disposition']).toMatch(/attachment; filename="coinvoy-data-/)
   expect(r.body.earnings).toHaveLength(12)
   expect(r.body.salaryRuns).toHaveLength(1)
   expect(r.body.profile.googleSub).toBeUndefined()
-  expect(r.body.officerLinks[0].tokenHash).toBeUndefined()
+  expect(r.body.verifyCodes).toHaveLength(1)
+  expect(r.body.verifyCodes[0].codeHash).toBeUndefined()
 })
 
 test('delete needs the word PADAM, then removes every row', async () => {

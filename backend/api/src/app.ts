@@ -98,6 +98,7 @@ export function createApp() {
   app.use('/api/auth', rateLimit(env.AUTH_RATE_PER_MIN), authRouter)
   app.use('/api/admin/ai', rateLimit(60), aiAdminRouter)
   app.use('/api', profileRouter, weeksRouter, homeRouter, snapRouter, advisorRouter, benefitsRouter, expensesRouter, pushRouter, adminRouter, accountRouter)
+  app.use('/o', rateLimit(30)) // verify codes are public: slow down guessing
   app.use(recordsRouter)
   app.use('/api', (_req, _res, next) => next(new ApiError(404, 'not_found', 'Tidak dijumpai.', 'Not found.')))
 

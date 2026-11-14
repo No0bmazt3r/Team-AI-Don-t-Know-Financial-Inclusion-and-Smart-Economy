@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { GoogleIcon } from '../components/GoogleIcon'
 import { LangToggle } from '../components/LangToggle'
@@ -106,6 +106,7 @@ function Login() {
           {message}
         </p>
         <p className="text-center text-[0.8125rem] text-muted">{t('login.footnote')}</p>
+        <Link to="/pricing" className="pressable self-center text-[0.8125rem] font-semibold underline underline-offset-4">{t('settings.pricing')}</Link>
       </section>
     </main>
   )

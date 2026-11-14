@@ -53,7 +53,7 @@ const schema = z.object({
   BM_CLASSIFIER_THRESHOLD: z.coerce.number().default(0.7),
   // Contributions. VERIFY each against the official source before the pitch.
   ISARAAN_MATCH_RATE: z.coerce.number().default(0.2),
-  ISARAAN_MATCH_CAP_SEN: z.coerce.number().default(50_000),
+  ISARAAN_MATCH_CAP_SEN: z.coerce.number().default(60_000), // i-Saraan Plus for e-hailing/p-hailing, Budget 2026: RM600 a year
   PERKESO_RATE: z.coerce.number().default(0.0125),
   PERKESO_DEDUCTED_AT_SOURCE: bool(true),
 })

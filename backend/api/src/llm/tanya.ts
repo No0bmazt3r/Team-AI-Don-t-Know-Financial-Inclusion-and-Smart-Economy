@@ -10,6 +10,7 @@ import { ml, type Risk, type Scenario } from '../ml.ts'
 import { lesson } from '../services/lessons.ts'
 import { ensurePots } from '../services/pots.ts'
 import { runScenario } from '../services/salary.ts'
+import { ApiError } from '../errors.ts'
 import { type ChatResult, chat, chatStream } from './client.ts'
 import { allowedValues, check } from './guard.ts'
 
@@ -25,6 +26,7 @@ const STYLE = {
 - Contoh: "Selamat. Gaji minggu ni cukup untuk tu. Cuma jangan habiskan sekali gus tau, simpan sikit untuk bil."`,
 }
 const MAX_TOOL_ROUNDS = 4
+const MAX_RM = 10_000_000 // a house or a car still fits; beyond this the tool says it's too big to work out
 const SCAM_HOTLINE = '997' // NSRC, the National Scam Response Centre (prompts/tanya.md)
 const RISK: Record<'ms' | 'en', Record<Risk, string>> = {
   ms: { selamat: 'Selamat', berhati: 'Berhati-hati', berisiko: 'Berisiko' },
@@ -41,8 +43,8 @@ export const TOOLS: ChatCompletionTool[] = [
   fn('get_forecast', "The rider's usual weekly earnings: a slow week, a usual week and a busy week, and planned hours."),
   fn('simulate', "What-if: the new safe salary and how safe the current salary stays if something changes. Use it for 'can I afford', new instalments, one-off purchases, more or fewer hours, or leave.", {
     hours_per_week: { type: 'number', minimum: 0, maximum: 84 },
-    add_monthly_instalment_rm: { type: 'number', minimum: 0, maximum: 100000 },
-    one_off_expense_rm: { type: 'number', minimum: 0, maximum: 100000 },
+    add_monthly_instalment_rm: { type: 'number', minimum: 0, maximum: MAX_RM },
+    one_off_expense_rm: { type: 'number', minimum: 0, maximum: MAX_RM },
     one_off_in_weeks: { type: 'integer', minimum: 0, maximum: 11 },
     leave_in_weeks: { type: 'integer', minimum: 1, maximum: 11 },
     leave_weeks: { type: 'integer', minimum: 1, maximum: 4 },
@@ -67,6 +69,9 @@ export async function runTool(user: User, name: string, args: Record<string, unk
       return { salary_rm: rm(now.salarySen), safe_percent: Math.round(now.pSafe * 100), risk: now.risk, buffer_rm: rm(inputs.bufferSen), essentials_rm: rm(inputs.essentialsWeekSen), gap_rm: rm(now.jurang?.gapSen ?? 0) }
     }
     if (name === 'get_forecast') return { slow_week_rm: rm(now.band.low), usual_week_rm: rm(now.band.mid), busy_week_rm: rm(now.band.high), planned_hours: now.plannedHours }
+    const money = [args.add_monthly_instalment_rm, args.one_off_expense_rm]
+    if (money.some((v) => v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < 0))) return { error: 'amount_not_a_plain_number', what_to_do: 'ask the rider to confirm the amount' }
+    if (money.some((v) => typeof v === 'number' && v > MAX_RM)) return { error: 'amount_too_large_to_work_out', max_rm: MAX_RM }
     const scenario: Scenario = {
       hours: typeof args.hours_per_week === 'number' ? args.hours_per_week : null,
       addMonthlySen: Math.round(num(args.add_monthly_instalment_rm) * 100),
@@ -163,24 +168,40 @@ export async function answer(
     shown = 0
   }
 
+  // Once the engine has answered, a failed AI call doesn't cost the rider the answer: the templated reply is built
+  // only from tool results, so it still passes the guard.
+  const orFallback = async (msgs: ChatCompletionMessageParam[]) => {
+    try {
+      return await complete(msgs)
+    } catch (err) {
+      if (!(err instanceof ApiError) || !err.code.startsWith('llm_') || !results.length) throw err
+      return null
+    }
+  }
+
   let reply = ''
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-    const r = await complete(messages)
+    const r = await orFallback(messages)
+    if (!r) break
     const calls = (r.message.tool_calls ?? []).filter((c) => c.type === 'function')
     if (!calls.length) {
       reply = r.message.content ?? ''
       break
     }
     reset() // any "let me check" text before a tool call isn't the answer
-    messages.push({ role: 'assistant', content: r.message.content ?? '', tool_calls: calls })
-    for (const c of calls) {
-      let args: unknown = {}
+    // Parse each call's arguments once. What goes back to the provider is always valid JSON: a model that writes
+    // {"one_off_expense_rm": 250,00000} would otherwise make the next request fail (Gemini answers 400).
+    const parsed = calls.map((c) => {
       try {
-        args = JSON.parse(c.function.arguments || '{}')
+        const a: unknown = JSON.parse(c.function.arguments || '{}')
+        return a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : null
       } catch {
-        args = {}
+        return null
       }
-      const out = await runTool(user, c.function.name, args && typeof args === 'object' ? (args as Record<string, unknown>) : {})
+    })
+    messages.push({ role: 'assistant', content: r.message.content ?? '', tool_calls: calls.map((c, i) => ({ ...c, function: { ...c.function, arguments: JSON.stringify(parsed[i] ?? {}) } })) })
+    for (const [i, c] of calls.entries()) {
+      const out = parsed[i] ? await runTool(user, c.function.name, parsed[i]) : { error: 'amount_not_a_plain_number', what_to_do: 'ask the rider to confirm the amount' }
       results.push(out)
       tools.push(c.function.name)
       messages.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(out) })
@@ -194,9 +215,9 @@ export async function answer(
     reset()
     // One retry, naming the numbers that had no source; then the templated answer.
     const note = `Your draft used numbers no tool returned: ${bad.join(', ')}. Rewrite it using only numbers from the tool results above, or call a tool.`
-    const retry = await complete([...messages, { role: 'assistant', content: reply }, { role: 'system', content: note }])
-    reply = retry.message.content ?? ''
-    if (!reply || check(reply, allowed).length || retry.message.tool_calls?.length) reply = fallback(results, lang)
+    const retry = await orFallback([...messages, { role: 'assistant', content: reply }, { role: 'system', content: note }])
+    reply = retry?.message.content ?? ''
+    if (!reply || check(reply, allowed).length || retry?.message.tool_calls?.length) reply = fallback(results, lang)
   }
   if (!reply.trim()) reply = fallback(results, lang)
   const risk = ([...results].reverse().find((x) => typeof x.risk === 'string')?.risk ?? null) as Risk | null

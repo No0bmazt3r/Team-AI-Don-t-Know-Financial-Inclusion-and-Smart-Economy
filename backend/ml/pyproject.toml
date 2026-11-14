@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=2.5.4",
     "pypdf>=6.21.1",
     "scikit-learn>=1.9.1",
+    "segno>=1.6",
     "uvicorn[standard]>=0.54.0",
 ]
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Award, BarChart3, Bell, Briefcase, CalendarClock, ChevronRight, CircleHelp, Download, FileText, Landmark, Languages, LogOut, Moon, Palmtree, Shield, Trash2 } from 'lucide-react'
+import { Award, BarChart3, Bell, Briefcase, CalendarClock, ChevronRight, CircleHelp, Download, FileText, Gem, Landmark, Languages, LogOut, Moon, Palmtree, Shield, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Avatar } from '../../components/Avatar'
 import { Columns } from '../../components/Columns'
@@ -24,7 +24,7 @@ const ROW = 'flex min-h-14 items-center gap-3 px-4 py-3'
 const THEMES: User['theme'][] = ['light', 'dark', 'system']
 const DAYS: Key[] = ['day.0', 'day.1', 'day.2', 'day.3', 'day.4', 'day.5', 'day.6']
 
-function NavRow({ to, icon, label, tour }: { to: '/pencapaian' | '/rekod' | '/bil' | '/cuti' | '/privacy' | '/pocket' | '/admin'; icon: ReactNode; label: string; tour?: string }) {
+function NavRow({ to, icon, label, tour }: { to: '/pencapaian' | '/rekod' | '/bil' | '/cuti' | '/privacy' | '/pocket' | '/pricing' | '/admin'; icon: ReactNode; label: string; tour?: string }) {
   return (
     <Link to={to} data-tour={tour} className={`${ROW} pressable hover:bg-surface-2`}>
       {icon}
@@ -95,6 +95,7 @@ function Settings() {
         <NavRow to="/bil" icon={<CalendarClock size={22} aria-hidden />} label={t('bills.title')} />
         <NavRow to="/cuti" icon={<Palmtree size={22} aria-hidden />} label={t('cuti.entryTitle')} />
         <NavRow to="/pocket" icon={<Landmark size={22} aria-hidden />} label={t('settings.pocket')} />
+        <NavRow to="/pricing" icon={<Gem size={22} aria-hidden />} label={t('settings.pricing')} />
         <button type="button" data-tour="work" onClick={() => setProfileOpen(true)} className={`${ROW} pressable text-left hover:bg-surface-2`}>
           <Briefcase size={22} aria-hidden />
           <span className="flex-1 font-semibold">{t('settings.work')}</span>

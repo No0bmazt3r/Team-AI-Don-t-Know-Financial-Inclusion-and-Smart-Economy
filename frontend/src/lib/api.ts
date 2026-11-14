@@ -109,7 +109,6 @@ export type Penyata = {
   unlocked: boolean
   summary: { avgSen: number; minSen: number; maxSen: number; weeks: number; trend: 'up' | 'down' | 'flat'; source: 'self' | 'checked' | 'verified' } | null
 }
-export type OfficerLink = { id: number; months: number; expiresAt: string; revoked: boolean; openedCount: number; createdAt: string }
 export type Message = { id?: number; role: 'user' | 'assistant'; content: string; risk: Risk | null; guardTriggered?: boolean; at: string }
 export type Lesson = { topic: string; title: string; text: string }
 export type Expense = { id: number; weekStart: string; amountSen: number; category: string; note: string | null; parseTier: string | null }
@@ -196,7 +195,6 @@ export const leaveQuery = queryOptions({ queryKey: ['leave'], queryFn: () => api
 export const carumanQuery = queryOptions({ queryKey: ['caruman'], queryFn: () => api<Caruman>('/api/caruman') })
 export const weeksQuery = queryOptions({ queryKey: ['weeks'], queryFn: async () => (await api<{ weeks: Week[] }>('/api/weeks')).weeks })
 export const penyataQuery = queryOptions({ queryKey: ['penyata'], queryFn: () => api<Penyata>('/api/penyata') })
-export const linksQuery = queryOptions({ queryKey: ['links'], queryFn: async () => (await api<{ links: OfficerLink[] }>('/api/officer-links')).links })
 export const messagesQuery = queryOptions({ queryKey: ['messages'], queryFn: async () => (await api<{ messages: Message[] }>('/api/tanya/messages')).messages })
 export const celikQuery = queryOptions({ queryKey: ['celik'], queryFn: async () => (await api<{ lessons: Lesson[] }>('/api/celik')).lessons })
 export const expensesQuery = (week: string) => queryOptions({ queryKey: ['expenses', week], queryFn: async () => (await api<{ expenses: Expense[] }>(`/api/expenses?week=${week}`)).expenses })

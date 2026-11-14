@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import { allowedValues, check, extract } from '../src/llm/guard.ts'
 import { checkOffer, fcaMatch, instalment } from '../src/services/advisor.ts'
 import { safeLength } from '../src/llm/tanya.ts'
+import { provider } from '../src/llm/client.ts'
 import { demo, fakeLlm, rider } from './helpers.ts'
 
 // The number guard
@@ -174,4 +175,56 @@ test('streaming holds back a number nothing supports, and the last words until t
   expect(safeLength('Selamat. Gaji anda RM617 minggu ini, ', allowed)).toBe('Selamat. Gaji anda RM617 '.length)
   expect(safeLength('Selamat. Gaji anda RM999 minggu ini, ', allowed)).toBe(0)
   expect(safeLength('Selamat. Gaji', allowed)).toBe(0)
+})
+
+// The "RM 250,00000" bug: a model wrote that number straight into a tool call's JSON, and echoing the broken
+// arguments back made the provider refuse the next request, so the rider saw "The AI couldn't be reached".
+const rawCall = (name: string, args: string) => ({ role: 'assistant', content: '', tool_calls: [{ id: `c-${name}`, type: 'function', function: { name, arguments: args } }] })
+
+test('guard: an amount with odd commas allows both readings, so Odah can ask which one', () => {
+  const allowed = allowedValues('can I buy a bmw that is worth RM 250,00000')
+  expect(check('Did you mean RM250,000 or RM25,000,000?', allowed)).toEqual([])
+})
+
+test('Tanya: broken tool arguments are never sent back, and the model is told to ask again', async () => {
+  const a = await rider()
+  const llm = fakeLlm()
+  llm.replies = [rawCall('simulate', '{"one_off_expense_rm": 250,00000}'), 'Did you mean RM250,000 or RM25,000,000? Tell me and I check.']
+  const r = await a.post('/api/tanya/messages').send({ message: 'can I buy a bmw that is worth RM 250,00000' })
+  expect(r.status).toBe(200)
+  expect(r.body.guardTriggered).toBe(false)
+  const sent = llm.requests[1]!.messages as { role: string; content: string; tool_calls?: { function: { arguments: string } }[] }[]
+  const echoed = sent.find((m) => m.tool_calls)!.tool_calls![0]!.function.arguments
+  expect(() => JSON.parse(echoed)).not.toThrow()
+  expect(JSON.parse(sent.find((m) => m.role === 'tool')!.content).error).toBe('amount_not_a_plain_number')
+})
+
+test('Tanya: a price over RM10 million is called too big, not simulated', async () => {
+  const a = await rider()
+  const llm = fakeLlm()
+  llm.replies = [toolCall('simulate', { one_off_expense_rm: 25_000_000 }), 'That one too big for weekly gaji lah.']
+  await a.post('/api/tanya/messages').send({ message: 'can I buy a bmw that is worth RM25000000' })
+  const tool = (llm.requests[1]!.messages as { role: string; content: string }[]).find((m) => m.role === 'tool')!
+  expect(JSON.parse(tool.content)).toEqual({ error: 'amount_too_large_to_work_out', max_rm: 10_000_000 })
+})
+
+test('Tanya: if the AI fails after the engine answered, the rider still gets the engine answer', async () => {
+  const a = await rider()
+  const llm = fakeLlm()
+  llm.replies = [toolCall('simulate', { one_off_expense_rm: 250_000 })]
+  const real = provider.fetch!
+  let calls = 0
+  provider.fetch = (async (url: string | URL | Request, init?: RequestInit) => (++calls === 1 ? real(url, init) : new Response('{"error":{"message":"boom"}}', { status: 500 }))) as typeof fetch
+  const r = await a.post('/api/tanya/messages').send({ message: 'can I buy a car RM250000' })
+  expect(r.status).toBe(200)
+  expect(r.body.reply).toMatch(/^(Selamat|Berhati-hati|Berisiko)\./)
+})
+
+test('Tanya: when the AI is down before any tool ran, the error speaks as Odah', async () => {
+  const a = await rider()
+  fakeLlm()
+  provider.fetch = (async () => new Response('{"error":{"message":"boom"}}', { status: 500 })) as typeof fetch
+  const r = await a.post('/api/tanya/messages').send({ message: 'hai' })
+  expect(r.status).toBe(502)
+  expect(r.body.error.message_en).toBe("Odah couldn't answer just now. Try again in a minute.")
 })

@@ -76,7 +76,7 @@ test('the usage view is only for admins and holds no rider data', async () => {
   expect(JSON.stringify(res.body)).not.toContain('example.com')
 })
 
-test('request logs are one JSON line with no query string or officer token', async () => {
+test('request logs are one JSON line with no query string or verify code', async () => {
   const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
   Object.assign(env, { LOG_REQUESTS: true })
   try {
@@ -84,14 +84,14 @@ test('request logs are one JSON line with no query string or officer token', asy
     app.use(requestLog)
     app.get(/.*/, (_req, res) => void res.send('ok'))
     const { default: request } = await import('supertest')
-    await request(app).get('/o/secret-token-123?x=1')
+    await request(app).get('/o/v/SECRETCODE9?x=1')
   } finally {
     Object.assign(env, { LOG_REQUESTS: false })
   }
   const lines = write.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('"request"'))
-  const officer = JSON.parse(lines.find((l) => l.includes('/o/'))!)
-  expect(officer).toMatchObject({ level: 'info', msg: 'request', method: 'GET', path: '/o/:token', status: 200, user: null })
-  expect(lines.join('')).not.toContain('secret-token-123')
+  const verify = JSON.parse(lines.find((l) => l.includes('/o/'))!)
+  expect(verify).toMatchObject({ level: 'info', msg: 'request', method: 'GET', path: '/o/v/:code', status: 200, user: null })
+  expect(lines.join('')).not.toContain('SECRETCODE9')
 })
 
 test('with ORIGIN_VERIFY set, /api and /o need the CloudFront header; the health check stays open', async () => {

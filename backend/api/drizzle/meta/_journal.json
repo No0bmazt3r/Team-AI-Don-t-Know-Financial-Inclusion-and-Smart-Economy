@@ -36,6 +36,20 @@
       "when": 1794615112089,
       "tag": "0004_parallel_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794633049565,
+      "tag": "0005_real_tyrannus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794633812308,
+      "tag": "0006_loud_rogue",
+      "breakpoints": true
     }
   ]
 }
