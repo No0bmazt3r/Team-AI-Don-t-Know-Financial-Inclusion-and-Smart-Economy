@@ -2,7 +2,7 @@
 # coinvoy/api secret (README → Deployment). Every name in backend/.env.example is accepted.
 
 # The app's address. First apply: leave as is; then paste the "app_url" output here and apply again.
-app_url = "https://pending.invalid"
+app_url = "https://d3ppgdv6rvy513.cloudfront.net"
 
 # Must all exist in the secret, or the container won't start. Drop a line here if you don't use that key.
 secret_keys = [
