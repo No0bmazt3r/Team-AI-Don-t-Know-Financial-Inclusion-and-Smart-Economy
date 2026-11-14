@@ -6,6 +6,13 @@ First-time setup and deploys are in the root [README → Deployment](../README.m
 
 ## What gets built
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagram/architecture-dark.png">
+  <img alt="Coinvoy on AWS: riders reach CloudFront, which serves the app from S3 and forwards /api and /o through the Express Mode load balancer to one Fargate task (Node API plus FastAPI engine), which talks to private RDS and to AI providers with per-job key fallback. GitHub Actions uploads the app and pushes images; Terraform provisions everything." src="diagram/architecture.png">
+</picture>
+
+Made with [stack-diagram](https://github.com/caru-ini/stack-diagram); the source is [`diagram/architecture.src.html`](diagram/architecture.src.html) (see "Regenerating the diagram" below). The Mermaid diagram below shows every resource Terraform creates.
+
 ```mermaid
 flowchart TB
   user(["Browser"])
@@ -51,6 +58,19 @@ flowchart TB
 | `coinvoy/api` | Values you set with the CLI: `AI_KEYS_MASTER_KEY`, Google, push, `ADMIN_EMAILS`. Every key listed in `secret_keys` must exist in it, or the task won't start. |
 | AI provider keys | Not in AWS config at all: admins manage them in the app (`/admin/ai`). They're encrypted in the database with `AI_KEYS_MASTER_KEY`. |
 | ECR | One image per commit, with tags that can't be overwritten. The last 10 are kept for rollback. Scanned on push. |
+
+## Regenerating the diagram
+
+The PNGs are rendered from `diagram/architecture.src.html` with the [stack-diagram](https://github.com/caru-ini/stack-diagram) skill's scripts. The icons are fetched fresh each time and never committed, because AWS allows its icons in diagrams but redistributing the files isn't confirmed.
+
+```bash
+SKILL=path/to/stack-diagram/skills/stack-diagram
+python3 $SKILL/scripts/fetch_icons.py icons "aws:aws/AWS-Cloud-logo" "cloudfront:aws/cloudfront" "s3:aws/s3" "elb:aws/elb" \
+  "ecs:aws/ecs" "rds:aws/rds" "secrets:aws/secrets-manager" "ecr:aws/ecr" "cloudwatch:aws/cloudwatch" "vpc:aws/vpc" \
+  "region:aws/Region" nodedotjs:nodejs fastapi "ghactions:githubactions" terraform "ai:lucide/sparkles" "pwa:lucide/smartphone"
+python3 $SKILL/scripts/build.py infra/diagram/architecture.src.html icons out.html --fonts $SKILL/assets/fonts
+python3 $SKILL/scripts/render_png.py out.html infra/diagram/architecture.png --selector .canvas --scale 2   # needs playwright
+```
 
 ## Who can change what (GitHub OIDC)
 

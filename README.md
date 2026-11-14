@@ -267,6 +267,14 @@ Coinvoy runs on AWS, managed with Terraform ([`infra/`](infra/main.tf)), with Gi
 
 ### System
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="infra/diagram/architecture-dark.png">
+  <img alt="Coinvoy on AWS: riders reach CloudFront, which serves the app from S3 and forwards /api and /o through the Express Mode load balancer to one Fargate task (Node API plus FastAPI engine), which talks to private RDS and to AI providers with per-job key fallback. GitHub Actions uploads the app and pushes images; Terraform provisions everything." src="infra/diagram/architecture.png">
+</picture>
+
+<details>
+<summary>Same picture as a Mermaid diagram (editable, with more detail)</summary>
+
 ```mermaid
 flowchart LR
   rider(["Rider's phone<br/>PWA · BM / EN"])
@@ -309,6 +317,8 @@ flowchart LR
   actions -.->|push image · update service| ecr
   actions -.->|upload · refresh| s3
 ```
+
+</details>
 
 - **One address for the browser.** CloudFront serves the app and forwards `/api` and `/o` to the API, so the session cookie is first-party and there's no CORS.
 - **The engine is private and stateless.** It runs in the same container as the API, listening on `127.0.0.1` only, with no database, users or AI; the API sends a rider's data as JSON and stores what comes back.
