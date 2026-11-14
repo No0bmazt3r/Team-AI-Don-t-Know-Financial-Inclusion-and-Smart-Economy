@@ -142,8 +142,13 @@ data "aws_iam_policy_document" "deploy" {
     actions = [
       "ecs:DescribeExpressGatewayService", "ecs:UpdateExpressGatewayService", "ecs:RegisterTaskDefinition",
       "ecs:DescribeServices", "ecs:DescribeServiceDeployments", "ecs:ListServiceDeployments",
+      "ecs:ListTasks", "ecs:DescribeTasks", # deploy-backend.yml prints why a task stopped when a deploy fails
     ]
     resources = ["*"] # ponytail: Express Mode's resource-level IAM is new; scope to the service ARN once it's documented
+  }
+  statement {
+    actions   = ["logs:FilterLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.api.arn}:*"]
   }
   statement {
     actions   = ["iam:PassRole"]

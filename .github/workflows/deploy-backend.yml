@@ -83,6 +83,40 @@ jobs:
           aws ecs update-express-gateway-service --service-arn "$SERVICE_ARN" --primary-container "$container" >/dev/null
       - name: Wait until the new task is healthy
         run: |
+          # Follows the ECS deployment itself instead of `aws ecs wait services-stable`, which gives up after a fixed
+          # 10 minutes and says nothing about why. Express Mode deploys (migrations, health checks, draining the old
+          # task) can take longer; a failure prints the service events, stopped tasks and recent logs.
           cluster=$(aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --query 'service.cluster' --output text)
-          aws ecs wait services-stable --cluster "$cluster" --services "$SERVICE_ARN"
-          echo "Backend running ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+          diagnose() {
+            echo "::group::Service events"
+            aws ecs describe-services --cluster "$cluster" --services "$SERVICE_ARN" \
+              --query 'services[0].events[:15].[createdAt,message]' --output text || true
+            echo "::endgroup::"
+            echo "::group::Stopped tasks"
+            tasks=$(aws ecs list-tasks --cluster "$cluster" --service-name "${SERVICE_ARN##*/}" --desired-status STOPPED --query 'taskArns[:3]' --output text || true)
+            [ -n "$tasks" ] && [ "$tasks" != "None" ] && aws ecs describe-tasks --cluster "$cluster" --tasks $tasks \
+              --query 'tasks[].{stopped:stoppedReason,containers:containers[].[name,exitCode,reason]}' --output json || true
+            echo "::endgroup::"
+            echo "::group::Last 15 minutes of /ecs/coinvoy-api"
+            aws logs filter-log-events --log-group-name /ecs/coinvoy-api --start-time $(( ($(date +%s) - 900) * 1000 )) \
+              --query 'events[-60:].message' --output text || true
+            echo "::endgroup::"
+          }
+          for _ in $(seq 1 90); do # 90 × 20 s = 30 minutes
+            read -r status reason < <(aws ecs list-service-deployments --cluster "$cluster" --service "$SERVICE_ARN" \
+              --output json | jq -r '.serviceDeployments | max_by(.createdAt) | "\(.status) \(.statusReason // "")"')
+            echo "$(date +%T) deployment: $status $reason"
+            case "$status" in
+              SUCCESSFUL)
+                echo "Backend running ${{ steps.image.outputs.image }}" >> "$GITHUB_STEP_SUMMARY"
+                exit 0 ;;
+              STOPPED|ROLLBACK_*)
+                echo "::error::Deployment $status: $reason (ECS keeps the previous task running)"
+                diagnose
+                exit 1 ;;
+            esac
+            sleep 20
+          done
+          echo "::error::Deployment still not finished after 30 minutes"
+          diagnose
+          exit 1
