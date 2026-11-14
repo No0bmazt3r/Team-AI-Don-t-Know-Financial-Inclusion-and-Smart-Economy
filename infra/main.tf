@@ -138,7 +138,11 @@ data "aws_iam_policy_document" "deploy" {
     resources = [aws_ecr_repository.api.arn]
   }
   statement {
-    actions   = ["ecs:DescribeExpressGatewayService", "ecs:UpdateExpressGatewayService", "ecs:DescribeServices"]
+    # UpdateExpressGatewayService registers a new task definition revision as the caller (IAM service reference)
+    actions = [
+      "ecs:DescribeExpressGatewayService", "ecs:UpdateExpressGatewayService", "ecs:RegisterTaskDefinition",
+      "ecs:DescribeServices", "ecs:DescribeServiceDeployments", "ecs:ListServiceDeployments",
+    ]
     resources = ["*"] # ponytail: Express Mode's resource-level IAM is new; scope to the service ARN once it's documented
   }
   statement {
