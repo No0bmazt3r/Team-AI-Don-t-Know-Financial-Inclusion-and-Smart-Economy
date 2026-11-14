@@ -7,10 +7,10 @@ import { ErrorState } from '../../components/ErrorState'
 import { RiskBadge } from '../../components/RiskBadge'
 import { ScreenHeader } from '../../components/ScreenHeader'
 import { Skeleton } from '../../components/Skeleton'
-import { WeekPicker } from '../../components/WeekPicker'
-import { useI18n } from '../../i18n/t'
+import { DateRangePicker, type Range } from '../../components/DateRangePicker'
+import { dayCount, useI18n } from '../../i18n/t'
 import { api, errorText, type LeavePreview, leaveQuery, prefetch } from '../../lib/api'
-import { addDays, thisWeekStart, weekLabel } from '../../lib/dates'
+import { addDays, rangeLabel, thisWeekStart, weekLabel } from '../../lib/dates'
 import { formatRM } from '../../lib/money'
 import { Chip } from '../onboarding'
 import { Tooltip } from '../../components/Tooltip'
@@ -23,13 +23,14 @@ function Cuti() {
   const { t, lang } = useI18n()
   const q = useQuery(leaveQuery)
   const queryClient = useQueryClient()
-  const weeks = Array.from({ length: 51 }, (_, i) => addDays(thisWeekStart(), 7 * (i + 2)))
+  // Leave starts two weeks out at the earliest (time to set aside) and within a year
+  const min = addDays(thisWeekStart(), 14)
+  const max = addDays(thisWeekStart(), 7 * 52 + 6)
   const [label, setLabel] = useState('')
-  const [start, setStart] = useState(weeks[3]!)
-  const [length, setLength] = useState(1)
+  const [range, setRange] = useState<Range>({ start: addDays(thisWeekStart(), 35), end: addDays(thisWeekStart(), 41) })
   const [preview, setPreview] = useState<LeavePreview | null>(null)
   const [sickDays, setSickDays] = useState(2)
-  const body = { label: label.trim() || null, startWeek: start, weeks: length }
+  const body = { label: label.trim() || null, startDate: range.start, endDate: range.end }
 
   const ask = useMutation({ mutationFn: () => api<LeavePreview>('/api/leave/preview', { body }), onSuccess: setPreview })
   const plan = useMutation({
@@ -55,13 +56,7 @@ function Cuti() {
           {t('cuti.label')}
           <input value={label} onChange={(e) => { setLabel(e.target.value); setPreview(null) }} placeholder={t('cuti.labelPlaceholder')} maxLength={40} className="h-12 rounded-[var(--radius-sm)] border border-line-strong bg-surface-2 px-3 text-base font-normal" />
         </label>
-        <WeekPicker label={t('cuti.start')} value={start} span={length} min={weeks[0]!} max={weeks.at(-1)!} onChange={(v) => { setStart(v); setPreview(null) }} />
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-semibold">{t('cuti.length')}</span>
-          <div className="flex flex-wrap gap-2" role="group" aria-label={t('cuti.length')}>
-            {[1, 2, 3, 4].map((n) => <Chip key={n} on={length === n} onClick={() => { setLength(n); setPreview(null) }}>{t('cuti.weeksN', { n })}</Chip>)}
-          </div>
-        </div>
+        <DateRangePicker label={t('cuti.dates')} value={range} min={min} max={max} maxDays={28} onChange={(r) => { setRange(r); setPreview(null) }} />
         {!preview ? (
           <button type="button" className="btn btn-primary" disabled={ask.isPending} onClick={() => ask.mutate()}>{t('cuti.preview')}</button>
         ) : (
@@ -91,7 +86,7 @@ function Cuti() {
                   <li key={l.id} className="flex items-center gap-3 p-4">
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold">{l.label || t('cuti.untitled')}</p>
-                      <p className="text-sm text-muted">{weekLabel(l.startWeek, lang)} · {t('cuti.weeksN', { n: l.weeks })} · {t('pot.weekly', { amount: rm(l.setAsideWeekSen) })}</p>
+                      <p className="text-sm text-muted">{l.startDate && l.endDate ? `${rangeLabel(l.startDate, l.endDate, lang)} · ${dayCount(t, l.days ?? 0)}` : `${weekLabel(l.startWeek, lang)} · ${t('cuti.weeksN', { n: l.weeks })}`} · {t('pot.weekly', { amount: rm(l.setAsideWeekSen) })}</p>
                     </div>
                     <Tooltip side="bottom" text={t('common.delete')}><button type="button" aria-label={t('common.delete')} onClick={() => cancel.mutate(l.id)} className="pressable grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2">
                       <Trash2 size={20} aria-hidden />
@@ -105,7 +100,7 @@ function Cuti() {
             <h2 className="flex items-center gap-2 font-semibold"><Thermometer size={18} aria-hidden /> {t('cuti.sickTitle')}</h2>
             <p className="text-sm text-muted">{t('cuti.sickCovered', { covered: q.data.sick.daysCovered, used: q.data.sick.daysUsed })}</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label={t('cuti.sickDays')}>
-              {[1, 2, 3, 4, 5, 6].map((n) => <Chip key={n} on={sickDays === n} onClick={() => setSickDays(n)}>{t('cuti.daysN', { n })}</Chip>)}
+              {[1, 2, 3, 4, 5, 6].map((n) => <Chip key={n} on={sickDays === n} onClick={() => setSickDays(n)}>{dayCount(t, n)}</Chip>)}
             </div>
             <button type="button" className="btn btn-secondary" disabled={sick.isPending} onClick={() => sick.mutate()}>{t('cuti.sickButton')}</button>
             {sick.isSuccess && <p role="status" className="text-sm font-semibold">{t('cuti.sickDone')}</p>}

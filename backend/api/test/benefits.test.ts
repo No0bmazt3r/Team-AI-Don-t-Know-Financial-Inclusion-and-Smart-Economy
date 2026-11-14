@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { expect, test } from 'vitest'
 import { db, schema } from '../src/db/index.ts'
 import { env } from '../src/env.ts'
-import { addWeeks } from '../src/lib/weeks.ts'
+import { addDays, addWeeks } from '../src/lib/weeks.ts'
 import { demo, onboard, rider, THIS_WEEK } from './helpers.ts'
 
 const userId = async (a: Awaited<ReturnType<typeof demo>>) => Number((await a.get('/api/auth/me')).body.user.id)
@@ -10,7 +10,7 @@ const userId = async (a: Awaited<ReturnType<typeof demo>>) => Number((await a.ge
 test('leave preview, then plan: set-aside goes to Cuti, cancel restores the salary', async () => {
   const a = await rider(Array(12).fill(70000))
   const before = (await a.get('/api/home')).body
-  const raya = { label: 'Cuti Raya', startWeek: addWeeks(THIS_WEEK, 5), weeks: 1 }
+  const raya = { label: 'Cuti Raya', startDate: addWeeks(THIS_WEEK, 5), endDate: addDays(addWeeks(THIS_WEEK, 5), 6) } // a whole Mon–Sun
   const p = (await a.post('/api/leave/preview').send(raya)).body
   expect(p.weeksUntil).toBe(5)
   expect(p.setAsideWeekSen).toBeGreaterThan(0)
@@ -25,10 +25,27 @@ test('leave preview, then plan: set-aside goes to Cuti, cancel restores the sala
   expect((await a.get('/api/home')).body.salary.salarySen).toBe(before.salary.salarySen)
 })
 
-test('leave must be planned ahead', async () => {
+test('leave must be planned ahead, and is 1 to 28 days', async () => {
   const a = await rider()
-  expect((await a.post('/api/leave/preview').send({ startWeek: THIS_WEEK, weeks: 1 })).status).toBe(422)
-  expect((await a.post('/api/leave/preview').send({ startWeek: addWeeks(THIS_WEEK, 2), weeks: 9 })).status).toBe(422)
+  const start = addWeeks(THIS_WEEK, 2)
+  expect((await a.post('/api/leave/preview').send({ startDate: addDays(THIS_WEEK, 3), endDate: addDays(THIS_WEEK, 4) })).status).toBe(422)
+  expect((await a.post('/api/leave/preview').send({ startDate: start, endDate: addDays(start, 28) })).status).toBe(422) // 29 days
+  expect((await a.post('/api/leave/preview').send({ startDate: start, endDate: addDays(start, -1) })).status).toBe(422)
+})
+
+test('leave by the day: three days cost about half a week, and the saved plan matches its preview', async () => {
+  const a = await rider(Array(12).fill(70000))
+  const mon = addWeeks(THIS_WEEK, 5)
+  const week = (await a.post('/api/leave/preview').send({ startDate: mon, endDate: addDays(mon, 6) })).body
+  const sat = addDays(mon, 5) // Sat, Sun, Mon: two weeks touched
+  const three = { label: 'Kenduri', startDate: sat, endDate: addDays(sat, 2) }
+  const p = (await a.post('/api/leave/preview').send(three)).body
+  expect(p.days).toBe(3)
+  expect(p.setAsideWeekSen).toBeLessThan(week.setAsideWeekSen)
+  expect(p.setAsideWeekSen).toBeGreaterThan(week.setAsideWeekSen / 3)
+  const made = (await a.post('/api/leave').send(three)).body.leave
+  expect(made).toMatchObject({ startWeek: mon, weeks: 2, days: 3, startDate: sat, endDate: addDays(sat, 2) })
+  expect((await a.get('/api/home')).body.salary.salarySen).toBe(p.salarySen)
 })
 
 test('a sick week is counted and freezes the streak', async () => {

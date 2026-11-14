@@ -4,7 +4,7 @@ import { and, asc, desc, eq, gte, lt, ne } from 'drizzle-orm'
 import { type Db, schema } from '../db/index.ts'
 import type { EngineResult } from '../db/schema.ts'
 import { env } from '../env.ts'
-import { addWeeks, thisWeek } from '../lib/weeks.ts'
+import { addWeeks, leaveParts, thisWeek } from '../lib/weeks.ts'
 import { type Inputs, ml, type Scenario } from '../ml.ts'
 import { ensurePots } from './pots.ts'
 import type { User } from '../auth.ts'
@@ -74,7 +74,13 @@ export async function buildInputs(db: Db, user: User, runWeek: string): Promise<
     bufferSen: pots.penampan.balanceSen,
     cutiSen: pots.cuti.balanceSen,
     bills: bills.map((b) => ({ name: b.name, amountSen: b.amountSen, frequency: b.frequency, dueDay: b.dueDay, dueDate: b.dueDate })),
-    leaves: leaves.map((l) => ({ startWeek: l.startWeek, weeks: l.weeks, setAsideWeekSen: l.setAsideWeekSen, fraction: (l.days ?? 6) / 6 })),
+    // Leave picked by the day becomes one entry per week it touches (that week's share off); the set-aside rides on
+    // the first so it's counted once. Older plans are whole weeks; sick weeks use their days.
+    leaves: leaves.flatMap((l) =>
+      l.startDate && l.endDate
+        ? leaveParts(l.startDate, l.endDate).map((p, i) => ({ startWeek: p.week, weeks: 1, setAsideWeekSen: i ? 0 : l.setAsideWeekSen, fraction: p.fraction }))
+        : [{ startWeek: l.startWeek, weeks: l.weeks, setAsideWeekSen: l.setAsideWeekSen, fraction: (l.days ?? 6) / 6 }],
+    ),
     essentialsWeekSen: user.essentialsWeekSen ?? 0,
     reservesWeekSen: reserves,
     seed: seedFor(user.id, runWeek),

@@ -50,6 +50,13 @@
       "when": 1794633812308,
       "tag": "0006_loud_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794634232583,
+      "tag": "0007_smiling_romulus",
+      "breakpoints": true
     }
   ]
 }

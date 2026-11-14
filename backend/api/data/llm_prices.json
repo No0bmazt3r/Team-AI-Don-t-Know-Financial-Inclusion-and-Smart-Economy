@@ -1,9 +1,12 @@
 {
-  "_how": "Fill from your provider's pricing page, then set 'checked' to that date. Keys are the exact model ids in llm_usage.model. Nothing here is a real price yet.",
-  "checked": "",
+  "_how": "Fill from your provider's pricing page, then set 'checked' to that date. Keys are the exact model ids in llm_usage.model. Gemini rates are published rates as reported on 2026-11-14; recheck Google's page before relying on them. frontend/src/lib/pricing.ts uses the same numbers for the pricing page.",
+  "checked": "2026-11-14",
   "usdToMyr": 4.5,
-  "hostingMyrPerMonth": 0,
+  "hostingMyrPerMonth": 360,
   "models": {
-    "example/model-id": { "inputPerMillionUsd": 0, "outputPerMillionUsd": 0 }
+    "gemini-3.5-flash-lite": {
+      "inputPerMillionUsd": 0.3,
+      "outputPerMillionUsd": 2.5
+    }
   }
 }

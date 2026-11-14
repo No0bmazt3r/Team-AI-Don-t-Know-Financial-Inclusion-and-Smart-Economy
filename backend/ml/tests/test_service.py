@@ -100,3 +100,17 @@ def test_tax_summary_and_verify_view_render(ml):
     assert "Valid code" in html and "CV-ABCDE-FGHJK" in html and "not a tax return" in html
     pdf = ml.post("/penyata", json={**body, "verifyUrl": "https://coinvoy.example/o/v/ABCDEFGHJK"})
     assert pdf.content[:5] == b"%PDF-"
+
+
+def test_leave_preview_by_the_day_sets_aside_a_share_of_a_week(ml):
+    start = MON + timedelta(weeks=5)
+    week = ml.post("/leave-preview", json={"inputs": INPUTS, "startWeek": start.isoformat(), "weeks": 1}).json()
+    three = ml.post("/leave-preview", json={"inputs": INPUTS, "startWeek": start.isoformat(),
+                                            "parts": [{"week": start.isoformat(), "fraction": 0.5}]}).json()
+    assert three["weeksUntil"] == 5
+    assert 0 < three["setAsideWeekSen"] < week["setAsideWeekSen"]  # 3 of 6 days: about half a week's set-aside
+    assert three["salaryDeltaSen"] >= week["salaryDeltaSen"]  # costs the salary less than a full week
+    span = ml.post("/leave-preview", json={"inputs": INPUTS, "startWeek": start.isoformat(), "parts": [
+        {"week": start.isoformat(), "fraction": 2 / 6},
+        {"week": (start + timedelta(weeks=1)).isoformat(), "fraction": 3 / 6}]}).json()  # Sat–Wed over two weeks
+    assert three["setAsideWeekSen"] <= span["setAsideWeekSen"] < week["setAsideWeekSen"] * 1.01

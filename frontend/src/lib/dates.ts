@@ -21,14 +21,18 @@ export function weekStart(iso: string): string {
   return addDays(iso, -((utc(iso).getUTCDay() + 6) % 7))
 }
 
-/** "13–19 Okt" / "27 Okt – 2 Nov" in the rider's language. */
-export function weekLabel(monday: string, lang: 'ms' | 'en'): string {
+/** "13–19 Okt" / "27 Okt – 2 Nov" / "24 Dis" in the rider's language. */
+export function rangeLabel(from: string, to: string, lang: 'ms' | 'en'): string {
   const fmt = (iso: string, month: boolean) =>
     new Intl.DateTimeFormat(lang === 'ms' ? 'ms-MY' : 'en-GB', { day: 'numeric', ...(month ? { month: 'short' } : {}), timeZone: 'UTC' }).format(utc(iso))
-  const sunday = addDays(monday, 6)
-  const sameMonth = monday.slice(5, 7) === sunday.slice(5, 7)
-  return sameMonth ? `${fmt(monday, false)}–${fmt(sunday, true)}` : `${fmt(monday, true)} – ${fmt(sunday, true)}`
+  if (from === to) return fmt(from, true)
+  return from.slice(5, 7) === to.slice(5, 7) ? `${fmt(from, false)}–${fmt(to, true)}` : `${fmt(from, true)} – ${fmt(to, true)}`
 }
+
+export const weekLabel = (monday: string, lang: 'ms' | 'en'): string => rangeLabel(monday, addDays(monday, 6), lang)
+
+/** Calendar days from one date to another, both counted. */
+export const daysBetween = (from: string, to: string): number => Math.round((utc(to).getTime() - utc(from).getTime()) / 86_400_000) + 1
 
 /** This week's Monday in Malaysia. */
 export const thisWeekStart = () => weekStart(todayKL())

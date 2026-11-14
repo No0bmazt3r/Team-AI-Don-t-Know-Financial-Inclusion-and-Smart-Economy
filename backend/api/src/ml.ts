@@ -6,6 +6,7 @@ import { errorFields, log } from './log.ts'
 
 export type Bill = { name: string; amountSen: number; frequency: string; dueDay: number | null; dueDate: string | null }
 export type Leave = { startWeek: string; weeks: number; setAsideWeekSen: number; fraction?: number }
+export type LeavePart = { week: string; fraction: number }
 
 export type Inputs = {
   weekStart: string
@@ -67,7 +68,7 @@ export const ml = {
   solve: (inputs: Inputs, scenario?: Scenario, prev?: EngineResult | null) => json<EngineResult>('/solve', { inputs, scenario, prev: prev ?? null }),
   pSafe: (inputs: Inputs, salarySen: number, scenario: Scenario) => json<{ pSafe: number; risk: Risk }>('/p-safe', { inputs, salarySen, scenario }),
   jurang: (inputs: Inputs) => json<JurangResult>('/jurang', { inputs }),
-  leavePreview: (inputs: Inputs, startWeek: string, weeks: number) => json<LeavePreview>('/leave-preview', { inputs, startWeek, weeks }),
+  leavePreview: (inputs: Inputs, parts: LeavePart[]) => json<LeavePreview>('/leave-preview', { inputs, startWeek: parts[0]!.week, parts }),
   parseCost: (text: string) => json<CostParse>('/bm/parse', { text, threshold: env.BM_CLASSIFIER_THRESHOLD }),
   penyataHtml: async (body: PenyataBody) => (await call('/penyata', { ...body, format: 'html' })).text(),
   statementLines: async (pdf: Uint8Array) => {

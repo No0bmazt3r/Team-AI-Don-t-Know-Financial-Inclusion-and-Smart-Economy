@@ -5,9 +5,10 @@ JSON, and stores what comes back. Every call needs the shared X-ML-Token when ML
 """
 
 import io
+import math
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -185,20 +186,32 @@ def jurang_route(body: InputsOnly) -> dict:
             "costs": {"cutSen": now.jurang["gap_sen"], "essentialsAfterSen": safe}}
 
 
+class LeavePart(Camel):
+    week: date  # a Monday
+    fraction: float = Field(gt=0, le=1)  # share of that week off: days / 6, a full week = 1
+
+
 class LeavePreviewIn(Camel):
     inputs: InputsBody
     start_week: date
-    weeks: int = Field(ge=1, le=4)
+    weeks: int = Field(1, ge=1, le=5)
+    parts: list[LeavePart] = Field(default_factory=list, max_length=5)  # leave by the day; else whole weeks
 
 
 @app.post("/leave-preview")
 def leave_preview_route(body: LeavePreviewIn) -> dict:
-    """How much to set aside each week until the leave, and what that does to the salary (FR-CUTI-1)."""
+    """How much to set aside each week until the leave, and what that does to the salary (FR-CUTI-1).
+    Leave picked by the day comes as parts: one per week it touches, with the share of that week off."""
     inp = to_inputs(body.inputs)
-    until = weeks_between(inp.week_start, body.start_week)
+    parts = [(p.week, p.fraction) for p in body.parts] or [
+        (body.start_week + timedelta(weeks=i), 1.0) for i in range(body.weeks)]
+    until = weeks_between(inp.week_start, parts[0][0])
     now = solve(inp)
-    set_aside = -(-now.salary_sen * body.weeks // max(until, 1) // 100) * 100  # enough to pay every week off
-    planned = solve(inp, Scenario(leaves=(LeaveIn(body.start_week, body.weeks, set_aside),)))
+    weeks_off = sum(f for _, f in parts)
+    set_aside = math.ceil(now.salary_sen * weeks_off / max(until, 1) / 100) * 100  # enough to pay every day off
+    # The whole set-aside rides on the first part, so it's counted once; each part pays its share of a salary.
+    leaves = tuple(LeaveIn(w, 1, set_aside if i == 0 else 0, f) for i, (w, f) in enumerate(parts))
+    planned = solve(inp, Scenario(leaves=leaves))
     return {"weeksUntil": until, "setAsideWeekSen": set_aside, "salarySen": planned.salary_sen,
             "salaryDeltaSen": planned.salary_sen - now.salary_sen, "pSafe": planned.p_safe, "risk": planned.risk}
 

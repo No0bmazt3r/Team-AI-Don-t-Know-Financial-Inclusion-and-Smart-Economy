@@ -19,3 +19,6 @@ export function useI18n(): I18n {
   if (!ctx) throw new Error('useI18n outside I18nProvider')
   return ctx
 }
+
+/** "1 day" / "3 days" ("1 hari" / "3 hari"). */
+export const dayCount = (t: (k: Key, v?: Record<string, string | number>) => string, n: number) => t(n === 1 ? 'picker.day1' : 'picker.daysN', { n })

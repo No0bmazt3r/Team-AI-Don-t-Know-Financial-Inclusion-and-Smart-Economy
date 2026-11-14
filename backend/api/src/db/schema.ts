@@ -180,7 +180,9 @@ export const leavePlans = pgTable('leave_plans', {
   label: text(),
   startWeek: date('start_week', { mode: 'string' }).notNull(),
   weeks: integer().notNull(),
-  days: integer(), // sick only: days off that week (1-6)
+  days: integer(), // sick: days off that week (1-6); planned by the day: the days picked
+  startDate: date('start_date', { mode: 'string' }), // planned by the day (null = whole weeks from start_week)
+  endDate: date('end_date', { mode: 'string' }),
   setAsideWeekSen: integer('set_aside_week_sen').notNull().default(0),
   status: text().notNull().default('planned'), // planned | cancelled
   createdAt: createdAt(),

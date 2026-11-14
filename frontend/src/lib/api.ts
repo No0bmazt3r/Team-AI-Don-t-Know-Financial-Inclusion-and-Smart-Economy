@@ -95,8 +95,8 @@ export type Home = {
   streak: Streak
 }
 
-export type Leave = { id: number; kind: 'planned' | 'sick'; label: string | null; startWeek: string; weeks: number; days: number | null; setAsideWeekSen: number; status: string }
-export type LeavePreview = { weeksUntil: number; setAsideWeekSen: number; salarySen: number; salaryDeltaSen: number; pSafe: number; risk: Risk }
+export type Leave = { id: number; kind: 'planned' | 'sick'; label: string | null; startWeek: string; weeks: number; days: number | null; startDate: string | null; endDate: string | null; setAsideWeekSen: number; status: string }
+export type LeavePreview = { days: number; weeksUntil: number; setAsideWeekSen: number; salarySen: number; salaryDeltaSen: number; pSafe: number; risk: Risk }
 export type Caruman = {
   isaraan: { rate: number; capSen: number; paidYearSen: number; matchYearSen: number; fullMatchNeedsSen: number; leftForFullMatchSen: number; weeklySen: number }
   perkeso: { deductedAtSource: boolean; rate: number }
